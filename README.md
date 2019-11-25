@@ -12,7 +12,8 @@ The `-f` stands for "fake", to show fake data to see what every possibility
 looks like. The first 2 is repository status, and can be an 'R' or an 'M' if in
 a rebase or merge, for example.
 
-Next, the '`>`' indicates that you're in a sub-repo.
+Next, the '`>`' indicates that you're in a sub-repo. After that is the name of
+the current branch.
 
 The rest of the codes mean:
 
@@ -27,3 +28,10 @@ The rest of the codes mean:
 
 The ✖ is a little out of sorts because that character isn't supported in my
 font, YMMV.
+
+You can pass `repo_status` a path for it to give the status of a repository
+outside of your current directory.
+
+Recommended usage is to put it in your shell prompt. For this repo right now, mine looks like:
+
+![Example of repo_status](images/prompt.png)

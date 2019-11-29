@@ -263,7 +263,7 @@ def print_repo_info(repo_info, templates):
             # insert a space after branch or state
             results.append(templates['space'])
 
-    print(''.join(results).strip())
+    print(''.join(results).strip(), end='')
 
 
 def main(args):

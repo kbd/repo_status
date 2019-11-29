@@ -269,7 +269,7 @@ def print_repo_info(repo_info, templates):
 def main(args):
     repo = get_repo(args.path)
     if not repo:
-        return 1
+        return 2  # 2 is specific error for 'not a repository'
 
     info = get_repo_info(repo)
     if args.fake:

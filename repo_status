@@ -134,26 +134,14 @@ def get_repo(dir):
 
 def get_repo_branch(repo):
     if repo.head_is_detached:
-        # I don't see a good way to get any of this info out of pygit2
-
-        # gives things like 'tags/tag_name' or 'heads/branch_name' if head
-        # is detached but there's a tag or branch pointing to the current commit
-        ret = run(['git', 'describe', '--all', '--exact-match', 'HEAD'],
-            capture_output=True, cwd=repo.workdir)
-        if not ret.returncode:  # if success
-            return ret.stdout.decode().strip()
-
-        try:
-            # gives 'master~2' if detached two commits behind master
-            cmd = ['git', 'describe', '--contains', '--all', 'HEAD']
-            out = check_output(cmd, cwd=repo.workdir, stderr=DEVNULL)
-            return out.decode().strip()
-        except SubprocessError:
-            # if that's not available (like during an interactive rebase),
-            # gives the short commit hash
-            cmd = ['git', 'rev-parse', '--short', 'HEAD']
-            out = check_output(cmd, cwd=repo.workdir)
-            return out.decode().strip()
+        # gives things like 'tags/tag_name' or 'heads/branch_name' if
+        # there's a tag or branch pointing to the current commit.
+        # Otherwise, gives 'master~2' if detached two commits behind master.
+        # Finally, fall back to short commit id as fallback
+        # Evidently there's no equivalent call in libgit2
+        cmd = ['git', 'describe', '--all', '--contains', '--always', 'HEAD']
+        out = check_output(cmd, cwd=repo.workdir, stderr=DEVNULL)
+        return out.decode().strip()
     elif repo.head_is_unborn:  # brand new empty repo
         return 'master'
 

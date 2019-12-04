@@ -71,8 +71,12 @@ def get_git_statuses():
 
 
 def get_shell():
-    # this script's parent is the shell
-    return check_output(['current_shell', str(os.getppid())]).decode().strip()
+    # assume this program's parent is the shell. Not ideal, but no reliable way.
+    # TODO: allow to specify the shell as command line argument
+    cmd = f'ps -p {os.getppid()} -ocomm='
+    shell = check_output(cmd, shell=True).decode().strip()
+    # can be things like '-zsh', 'zsh', or '/usr/local/bin/zsh'
+    return re.sub(r'[^A-Za-z0-9._]+', '', os.path.basename(shell))
 
 
 def get_templates(shell):

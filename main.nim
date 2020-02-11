@@ -3,7 +3,8 @@ import
   parseopt,
   sequtils,
   strformat,
-  strutils
+  strutils,
+  tables
 
 
 type
@@ -19,23 +20,6 @@ type
     conflicted,
     renamed,
     unknown
-
-type
-  Status = tuple[
-    # ↑2 ↓2 ●2 +2 -2 ⚑2 …2 ✖2
-    ahead: int,
-    behind: int,
-    staged: int,
-    added: int,
-    modified: int,
-    removed: int,
-    stashed: int,
-    untracked: int,
-    conflicted: int,
-    unknown: int,
-
-    state: string
-  ]
 
 
 proc parse(statusCode: string): StatusCode =
@@ -145,9 +129,16 @@ proc printRepoStatus(dir: string): int =
   var (output, exitcode) = gitCmd(cmd, dir)
   echo &"Exit code was {exitcode}"
 
-  let status = parseStatusCodes(output)
-  echo &"Status was: {status}"
+  let statusCodes = parseStatusCodes(output)
+  echo &"Status was: {statusCodes}"
 
+  var status = initTable[StatusCode, int]()
+  # ↑2 ↓2 ●2 +2 -2 ⚑2 …2 ✖2
+
+  for s in statusCodes:
+    status.mgetOrPut(s, 0) += 1
+
+  echo status
   return 0
 
 

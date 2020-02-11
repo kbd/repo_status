@@ -7,36 +7,38 @@ import
 
 
 type
+  StatusCode = enum
+    ahead,
+    behind,
+    staged,
+    added,
+    modified,
+    removed,
+    stashed,
+    untracked,
+    conflicted,
+    renamed,
+    unknown
+
+type
   Status = tuple[
     # ↑2 ↓2 ●2 +2 -2 ⚑2 …2 ✖2
     ahead: int,
     behind: int,
     staged: int,
     added: int,
+    modified: int,
     removed: int,
     stashed: int,
     untracked: int,
     conflicted: int,
+    unknown: int,
+
+    state: string
   ]
 
 
-proc parseStatusCodes(status: string): seq[string] =
-  ## parse the 'git status -z' output and return a sequence of codes
-  if len(status) == 0:
-    return
-
-  var parts = status.split '\0'
-  # remove last (empty) element because we split instead of "splitlines"
-  parts.delete(len(parts) - 1)
-  var codes: seq[string]
-  for part in parts:
-    let code = part.split(" ", maxsplit = 1)[0]
-    codes.add(code)
-
-  echo &"Repo status: {parts}, {codes}"
-
-
-proc parseStatusCode(statusCode: string): Status =
+proc parse(statusCode: string): StatusCode =
   # from https://git-scm.com/docs/git-status
   #
   # For paths with merge conflicts, X and Y show the modification states of each
@@ -77,9 +79,53 @@ proc parseStatusCode(statusCode: string): Status =
   # ?           ?    untracked
   # !           !    ignored
   # -------------------------------------------------
-  var status: Status
-  status.ahead = 2
-  return status
+  if statusCode == "??":
+    return untracked
+
+  let index = statusCode[0]
+  let worktree = statusCode[1]
+  echo &"index: {index}, worktree: {worktree}"
+
+  if index == 'R':
+    return renamed
+  elif index != ' ':
+    return staged
+
+  case worktree:
+  of 'A':
+    return added
+  of 'M':
+    return modified
+  of 'D':
+    return removed
+  else:
+    return unknown
+
+
+proc parseStatusCodes(status: string): seq[StatusCode] =
+  ## parse the 'git status -z' output and return a sequence of codes
+  if len(status) == 0:
+    return
+
+  var parts = status.split '\0'
+  # remove last (empty) element because we split instead of "splitlines"
+  parts.delete(len(parts) - 1)
+  var codes: seq[StatusCode]
+  var i = 0
+  while i < parts.len:
+    let code = parts[i][0..<2]
+    # echo &"code is {repr(code)}"
+    let c = code.parse
+    if c == renamed:
+      codes.add(staged)
+      i.inc # skip next line (the renamed file)
+    else:
+      codes.add(c)
+
+    i.inc
+
+  echo &"Repo status: {parts}, {codes}"
+  return codes
 
 
 proc gitCmd(cmd: seq[string], workingdir: string): tuple[output: string,
@@ -103,15 +149,6 @@ proc printRepoStatus(dir: string): int =
   echo &"Status was: {status}"
 
   return 0
-  # case exitcode:
-  #   of 0:
-  #     let codes = parseStatusCodes output
-  #     for code in codes:
-  #       echo parseStatusCode(code)
-  #   of 128:
-  #     return # not a repo
-  #   else:
-  #     echo "Unknown error"
 
 
 proc parseOpts(): seq[string] =

@@ -23,52 +23,12 @@ type
 
 
 proc parse(statusCode: string): StatusCode =
-  # from https://git-scm.com/docs/git-status
-  #
-  # For paths with merge conflicts, X and Y show the modification states of each
-  # side of the merge. For paths that do not have merge conflicts, X shows the
-  # status of the index, and Y shows the status of the work tree. For untracked
-  # paths, XY are ??. Other status codes can be interpreted as follows:
-  #
-  #   ' ' = unmodified
-  #   M = modified
-  #   A = added
-  #   D = deleted
-  #   R = renamed
-  #   C = copied
-  #   U = updated but unmerged
-  #
-  # X          Y     Meaning
-  # -------------------------------------------------
-  #          [AMD]   not updated
-  # M        [ MD]   updated in index
-  # A        [ MD]   added to index
-  # D                deleted from index
-  # R        [ MD]   renamed in index
-  # C        [ MD]   copied in index
-  # [MARC]           index and work tree matches
-  # [ MARC]     M    work tree changed since index
-  # [ MARC]     D    deleted in work tree
-  # [ D]        R    renamed in work tree
-  # [ D]        C    copied in work tree
-  # -------------------------------------------------
-  # D           D    unmerged, both deleted
-  # A           U    unmerged, added by us
-  # U           D    unmerged, deleted by them
-  # U           A    unmerged, added by them
-  # D           U    unmerged, deleted by us
-  # A           A    unmerged, both added
-  # U           U    unmerged, both modified
-  # -------------------------------------------------
-  # ?           ?    untracked
-  # !           !    ignored
-  # -------------------------------------------------
+  # see https://git-scm.com/docs/git-status#_short_format for meaning of codes
   if statusCode == "??":
     return untracked
 
   let index = statusCode[0]
   let worktree = statusCode[1]
-  echo &"index: {index}, worktree: {worktree}"
 
   if index == 'R':
     return renamed
@@ -76,18 +36,18 @@ proc parse(statusCode: string): StatusCode =
     return staged
 
   case worktree:
-  of 'A':
-    return added
-  of 'M':
-    return modified
-  of 'D':
-    return removed
-  else:
-    return unknown
+    of 'A':
+      return added
+    of 'M':
+      return modified
+    of 'D':
+      return removed
+    else:
+      return unknown
 
 
 proc parseStatusCodes(status: string): seq[StatusCode] =
-  ## parse the 'git status -z' output and return a sequence of codes
+  # parse the 'git status -z' output and return a sequence of codes
   if len(status) == 0:
     return
 
@@ -98,7 +58,6 @@ proc parseStatusCodes(status: string): seq[StatusCode] =
   var i = 0
   while i < parts.len:
     let code = parts[i][0..<2]
-    # echo &"code is {repr(code)}"
     let c = code.parse
     if c == renamed:
       codes.add(staged)
@@ -108,7 +67,6 @@ proc parseStatusCodes(status: string): seq[StatusCode] =
 
     i.inc
 
-  echo &"Repo status: {parts}, {codes}"
   return codes
 
 
@@ -122,16 +80,10 @@ proc gitCmd(cmd: seq[string], workingdir: string): tuple[output: string,
 
 
 proc printRepoStatus(dir: string): int =
-  echo &"{dir} master"
-
   # get and parse status codes
   let cmd = @["status", "-z"]
   var (output, exitcode) = gitCmd(cmd, dir)
-  echo &"Exit code was {exitcode}"
-
   let statusCodes = parseStatusCodes(output)
-  echo &"Status was: {statusCodes}"
-
   var status = initTable[StatusCode, int]()
   # ↑2 ↓2 ●2 +2 -2 ⚑2 …2 ✖2
 
@@ -158,7 +110,6 @@ proc parseOpts(): seq[string] =
     else:
       echo &"invalid command line argument: {foo}"
 
-    # echo foo
   if len(dirs) == 0:
     dirs.add(".")
 

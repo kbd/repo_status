@@ -151,7 +151,15 @@ proc writeStatusStr(status: GitStatus) =
 
 
 proc getRepoBranch(dir: string): string =
-  return "master"
+  var cmd = @["rev-parse", "HEAD", "--"]
+  var (output, exitcode) = gitCmd(cmd, dir)
+
+  if exitcode == 128: # no HEAD, empty repo
+    return "master"
+
+  cmd = @["describe", "--all", "--contains", "--always", "HEAD"]
+  (output, exitcode) = gitCmd(cmd, dir)
+  return output.strip
 
 
 proc getStashCounts(dir: string): string =

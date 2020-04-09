@@ -3,6 +3,7 @@ import
   os,
   osproc,
   parseopt,
+  re,
   sequtils,
   strformat,
   strutils,
@@ -56,18 +57,30 @@ proc parse(statusCode: string): StatusCode =
       return unknown
 
 
-proc parseStatusCodes(status: string): seq[StatusCode] =
+proc myparseint(s: string): int =
+  if s == "":
+    return 0
+
+  return parseInt s
+
+
+proc parseAheadBehind(s: string): (int, int) =
+  if s =~ re"[^[]+?\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]$":
+    let (ahead, behind) = (myparseint matches[0], myparseint matches[1])
+    return (ahead, behind)
+
+  return (0, 0)
+
+
+proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =
   # parse the 'git status -z' output and return a sequence of codes
-  if len(status) == 0:
+  if len(statusLines) == 0:
     return
 
-  var parts = status.split '\0'
-  # remove last (empty) element because we split instead of "splitlines"
-  parts.delete(len(parts) - 1)
   var codes: seq[StatusCode]
   var i = 0
-  while i < parts.len:
-    let code = parts[i][0..<2]
+  while i < statusLines.len:
+    let code = statusLines[i][0..<2]
     let c = code.parse
     if c == renamed:
       codes.add(staged)
@@ -201,10 +214,22 @@ proc getRepoStashes(dir: string): string =
 
 proc getRepoStatus(dir: string): Table[StatusCode, int] =
   # get and parse status codes
-  let cmd = @["status", "-z"]
+  let cmd = @["status", "-zb"]
   var (output, exitcode) = gitCmd(cmd, dir)
-  let statusCodes = parseStatusCodes(output)
+
+  var statusLines = output.split '\0'
+  let branchLine = statusLines[0]
+  statusLines.delete(0)
+  # remove last (empty) element because we split instead of "splitlines"
+  statusLines.delete(len(statusLines) - 1)
+
+  let statusCodes = parseStatusCodes(statusLines)
   var status = initTable[StatusCode, int]()
+
+  # set ahead, behind
+  let (a, b) = parseAheadBehind(branchLine)
+  status[ahead] = a
+  status[behind] = b
 
   # populate the status table
   for s in statusCodes:

@@ -215,21 +215,17 @@ proc getRepoStatus(dir: string): Table[StatusCode, int] =
   var (output, exitcode) = gitCmd(cmd, dir)
   var statusLines = output.split '\0'
 
-  var status = initTable[StatusCode, int]()
-
-  # populate the status table
+  # populate the result
   # cut off first branch line and the last line, which is empty because
   # git status -z ends in null
   let statusCodes = parseStatusCodes(statusLines[1..^2])
   for s in statusCodes:
-    status.mgetOrPut(s, 0) += 1
+    result.mgetOrPut(s, 0) += 1
 
   # set ahead, behind
   let (a, b) = parseAheadBehind(statusLines[0])
-  status[ahead] = a
-  status[behind] = b
-
-  return status
+  result[ahead] = a
+  result[behind] = b
 
 
 proc printRepoStatus(dir: string): int =
@@ -268,12 +264,9 @@ proc parseOpts(): seq[string] =
 
 
 proc main(dirs: seq[string]): int =
-  var maxerr = 0
   for dir in dirs:
     var err = printRepoStatus(dir)
-    err = max(err, maxerr)
-
-  return maxerr
+    result = max(err, result)
 
 
 if isMainModule:

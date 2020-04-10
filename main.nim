@@ -57,11 +57,8 @@ proc parse(statusCode: string): StatusCode =
       return unknown
 
 
-proc myparseint(s: string): int =
-  if s == "":
-    return 0
-
-  return parseInt s
+func myparseint(s: string): int =
+  if s == "": 0 else: parseInt s
 
 
 proc parseAheadBehind(s: string): (int, int) =
@@ -216,27 +213,21 @@ proc getRepoStatus(dir: string): Table[StatusCode, int] =
   # get and parse status codes
   let cmd = @["status", "-zb"]
   var (output, exitcode) = gitCmd(cmd, dir)
-
   var statusLines = output.split '\0'
-  let branchLine = statusLines[0]
-  statusLines.delete(0)
-  # remove last (empty) element because we split instead of "splitlines"
-  statusLines.delete(len(statusLines) - 1)
 
-  let statusCodes = parseStatusCodes(statusLines)
   var status = initTable[StatusCode, int]()
 
-  # set ahead, behind
-  let (a, b) = parseAheadBehind(branchLine)
-  status[ahead] = a
-  status[behind] = b
-
   # populate the status table
+  # cut off first branch line and the last line, which is empty because
+  # git status -z ends in null
+  let statusCodes = parseStatusCodes(statusLines[1..^2])
   for s in statusCodes:
     status.mgetOrPut(s, 0) += 1
 
-  # get stashes
-  status[stashed] = 1
+  # set ahead, behind
+  let (a, b) = parseAheadBehind(statusLines[0])
+  status[ahead] = a
+  status[behind] = b
 
   return status
 
@@ -252,8 +243,6 @@ proc printRepoStatus(dir: string): int =
 
   # format the status codes into a string suitable for printing in the prompt
   writeStatusStr(gitstatus)
-
-  return 0
 
 
 proc parseOpts(): seq[string] =

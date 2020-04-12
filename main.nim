@@ -1,5 +1,6 @@
 import
   algorithm,
+  math,
   os,
   osproc,
   parseopt,
@@ -30,7 +31,7 @@ type
     state: string
     branch: string
     status: Table[StatusCode, int]
-    stash: string
+    stash: Table[string, int]
 
 
 proc parse(statusCode: string): StatusCode =
@@ -70,7 +71,7 @@ proc parseAheadBehind(s: string): (int, int) =
 
 
 proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =
-  # parse the 'git status -z' output and return a sequence of codes
+  ## parse the 'git status -z' output and return a sequence of codes
   if len(statusLines) == 0:
     return
 
@@ -95,7 +96,7 @@ proc gitCmd(cmd: seq[string], workingdir: string): tuple[output: string,
   ## Return the string result of the git command and the exit code
   var gitcmd = @["git", "-C", workingdir]
   let cmd = gitcmd.concat(cmd).join(" ")
-  echo &"Executing {cmd}"
+  # echo &"Executing {cmd}"
   return execCmdEx cmd
 
 
@@ -134,6 +135,20 @@ proc getRepoState(git_dir_path: string): string =
   return join(state_set.toSeq.sorted, "")
 
 
+proc formatStashes(status: GitStatus): string =
+  ## Return a string like 1A for one stash on current branch and one autostash
+  ## todo: also display count of all stashes?
+  # let total = sum(toSeq(status.stash.values))
+  let branch_count = status.stash.getOrDefault(status.branch)
+  let autostash = status.stash.getOrDefault("-autostash")
+
+  if branch_count > 0:
+    result &= $branch_count
+
+  if autostash > 0:
+    result &= 'A'
+
+
 proc writeStatusStr(status: GitStatus) =
   # o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
   let format = [
@@ -155,9 +170,15 @@ proc writeStatusStr(status: GitStatus) =
 
   # print stats
   for (color, token, code) in format:
-    let num = status.status.getOrDefault(code)
-    if num != 0:
-      stdout.styledWrite color, token, $num
+    if code == stashed:
+      let stashstr = formatStashes(status)
+      if stashstr == "":
+        continue
+      stdout.styledWrite color, token, stashstr
+    else:
+      let num = status.status.getOrDefault(code)
+      if num != 0:
+        stdout.styledWrite color, token, $num
 
 
 proc getRepoBranch(dir: string): string =
@@ -172,41 +193,22 @@ proc getRepoBranch(dir: string): string =
   return output.strip
 
 
-proc getStashCounts(dir: string): string =
-  return ""
-  # def get_stash_counts(repo):
-  #   stash_counts = Counter()
+proc getRepoStashCounts(dir: string): Table[string, int] =
+  let (output, exitcode) = gitCmd(@["stash", "list"], dir)
+  if exitcode != 0:
+    stderr.writeLine &"Couldn't get stash list ({exitcode})"
 
-  #   if repo.head_is_unborn:
-  #       return stash_counts  # can't stash on new repo
-
-  #   stashes = check_output(['git', 'stash', 'list'], cwd=repo.workdir).decode().splitlines()
-  #   getbranch = re.compile(r'^[^:]+:[^:]+?(\S+):')
-  #   for stash in stashes:
-  #       match = getbranch.match(stash)
-  #       if match:
-  #           # count the branch name
-  #           stash_counts.update([match[1]])
-  #       elif stash.split(':')[1].strip() == 'autostash':
-  #           # count autostash
-  #           stash_counts.update(['-autostash'])
-
-  #   return stash_counts
-
-
-proc getRepoStashes(dir: string): string =
-  ## Return a string like 1A for one stash on a branch and one autostash.
-  ##
-  ##  If a count is zero, indicate by leaving it out.
-  # counter = get_stash_counts(repo)
-  # if not counter:  # if no stashes, don't get stats
-  #     return ''
-  # else:
-  #     _total, branch_count, autostash = get_stash_stats(repo, counter)
-  #     branch_str = str(branch_count or '')
-  #     autostash_str = f"A{autostash if autostash > 1 else ''}" if autostash else ''
-  #     return f"{branch_str}{autostash_str}"
-  return ""
+  # stash output looks like:
+  # stash@{0}: On (no branch): push file to stash
+  # stash@{1}: WIP on master: 8dbbdc4 commit one
+  # https://www.git-scm.com/docs/git-stash#Documentation/git-stash.txt-listltoptionsgt
+  for line in output.splitLines[0..^2]:
+    if line =~ re"^[^:]+:[^:]+?(\S+):":
+      result.mgetOrPut(matches[0], 0) += 1
+    elif line.split(':')[1].strip == "autostash":
+      result.mgetOrPut("-autostash", 0) += 1
+    else:
+      stderr.writeLine &"Stash line didn't match: {line}"
 
 
 proc getRepoStatus(dir: string): Table[StatusCode, int] =
@@ -234,7 +236,7 @@ proc printRepoStatus(dir: string): int =
     state: getRepoState(dir),
     branch: getRepoBranch(dir),
     status: getRepoStatus(dir),
-    stash: getRepoStashes(dir),
+    stash: getRepoStashCounts(dir),
   )
 
   # format the status codes into a string suitable for printing in the prompt

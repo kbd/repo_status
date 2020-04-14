@@ -2,11 +2,17 @@
 
 *Put git repository status in your command prompt*
 
-## Introduction
-Depends on libgit2, which must be installed. Only Python requirement is pygit2.
+## Disclaimer
 
-For this repo right now, I have one changed file (this readme) and one untracked
-file, so my prompt looks like:
+Recently rewritten in [Nim](https://nim-lang.org/). Still getting feature-parity
+with the Python version (such as interactive use and fake data), but it's now
+good enough to switch to for use in my prompt. The Python version is still
+available as `repo_status.py`.
+
+## Introduction
+
+For this repo at time of writing, I have one changed file (this readme) and one
+untracked file, so my prompt looks like:
 
 ![Example of repo_status](images/prompt.png)
 
@@ -59,3 +65,9 @@ done
 
 `repo_status` prints nothing if called on a directory that isn't a git repo (and
 returns error code `2`).
+
+## Build instructions
+
+```shell
+nim c -d:release repo_status.nim
+```

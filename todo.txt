@@ -1,16 +1,16 @@
-* copy over templates from python
-  - change colors to use nim's color module
+√ * copy over templates from python
+√   - change colors to use nim's color module
 * print basic status using templates in printRepoStatus
-* add ahead/behind
-  - figure out the git call to make
-  - shell out to it
-  - add it to the status dictionary
-* add repo state
-  - copy over the logic from python that checks for files in .git
-  - handle it separately from status since it's a string and it's only one thing
-* add stashes
+√ * add ahead/behind
+√   - figure out the git call to make
+√   - shell out to it
+√   - add it to the status dictionary
+√ * add repo state
+√   - copy over the logic from python that checks for files in .git
+√   - handle it separately from status since it's a string and it's only one thing
+√ * add stashes
 * check if there's anything else the python does you haven't covered
-* handle return codes, in case of "not a repository" or other errors
+√ * handle return codes, in case of "not a repository" or other errors
 * make it embeddable in a prompt
   - by default inspect $SHELL (how to read env vars in nim?)
     and don't depend on 'current_shell' script

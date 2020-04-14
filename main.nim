@@ -239,7 +239,7 @@ proc getRepoStatus(dir: string): Table[StatusCode, int] =
 
 
 proc isGitRepo(dir: string): bool =
-  let (output, exitcode) = gitCmd(@["rev-parse", "--is-inside-work-tree"], dir)
+  let (_, exitcode) = gitCmd(@["rev-parse", "--is-inside-work-tree"], dir)
   return exitcode == 0
 
 

@@ -238,8 +238,17 @@ proc getRepoStatus(dir: string): Table[StatusCode, int] =
   result[behind] = b
 
 
+proc isGitRepo(dir: string): bool =
+  let (output, exitcode) = gitCmd(@["rev-parse", "--is-inside-work-tree"], dir)
+  return exitcode == 0
+
+
 proc printRepoStatus(dir: string): int =
-  # create the overall GitStatus
+  # check if in git repo
+  if not isGitRepo(dir):
+    return 2 # specific error code for 'not in a repository'
+
+  # get repo info
   var gitstatus = (
     state: getRepoState(dir),
     branch: getRepoBranch(dir),

@@ -163,22 +163,30 @@ proc writeStatusStr(status: GitStatus) =
   ]
 
   # print state
-  stdout.styledWrite fgMagenta, status.state
+  if status.state != "":
+    stdout.styledWrite fgMagenta, status.state
+    stdout.write ' '
 
   # print branch
   stdout.styledWrite fgYellow, status.branch
 
   # print stats
+  var stats: seq[tuple[color: ForegroundColor, token: string, value: string]]
   for (color, token, code) in format:
     if code == stashed:
       let stashstr = formatStashes(status)
       if stashstr == "":
         continue
-      stdout.styledWrite color, token, stashstr
+      stats.add((color, token, stashstr))
     else:
       let num = status.status.getOrDefault(code)
       if num != 0:
-        stdout.styledWrite color, token, $num
+        stats.add((color, token, $num))
+
+  if len(stats) > 0:
+    stdout.write ' '
+    for (color, token, value) in stats:
+      stdout.styledWrite color, token, value
 
 
 proc getRepoBranch(dir: string): string =

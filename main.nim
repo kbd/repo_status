@@ -96,7 +96,6 @@ proc gitCmd(cmd: seq[string], workingdir: string): tuple[output: string,
   ## Return the string result of the git command and the exit code
   var gitcmd = @["git", "-C", workingdir]
   let cmd = gitcmd.concat(cmd).join(" ")
-  # echo &"Executing {cmd}"
   return execCmdEx cmd
 
 
@@ -149,6 +148,18 @@ proc formatStashes(status: GitStatus): string =
     result &= 'A'
 
 
+proc styleWrite(color: ForegroundColor, value: string) =
+  stdout.write "%{"
+  stdout.write ansiForegroundColorCode(color)
+  stdout.write "%}"
+
+  stdout.write value
+
+  stdout.write "%{"
+  stdout.write ansiForegroundColorCode(fgDefault)
+  stdout.write "%}"
+
+
 proc writeStatusStr(status: GitStatus) =
   # o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
   let format = [
@@ -164,29 +175,29 @@ proc writeStatusStr(status: GitStatus) =
 
   # print state
   if status.state != "":
-    stdout.styledWrite fgMagenta, status.state
+    styleWrite fgMagenta, status.state
     stdout.write ' '
 
   # print branch
-  stdout.styledWrite fgYellow, status.branch
+  styleWrite fgYellow, status.branch
 
   # print stats
-  var stats: seq[tuple[color: ForegroundColor, token: string, value: string]]
+  var stats: seq[tuple[color: ForegroundColor, value: string]]
   for (color, token, code) in format:
     if code == stashed:
       let stashstr = formatStashes(status)
       if stashstr == "":
         continue
-      stats.add((color, token, stashstr))
+      stats.add((color, token & stashstr))
     else:
       let num = status.status.getOrDefault(code)
       if num != 0:
-        stats.add((color, token, $num))
+        stats.add((color, token & $num))
 
   if len(stats) > 0:
     stdout.write ' '
-    for (color, token, value) in stats:
-      stdout.styledWrite color, token, value
+    for (color, value) in stats:
+      styleWrite color, value
 
 
 proc getRepoBranch(dir: string): string =

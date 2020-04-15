@@ -195,11 +195,10 @@ proc writeStatusStr(status: GitStatus) =
 
 
 proc getRepoBranch(dir: string): string =
-  var cmd = @["rev-parse", "HEAD", "--"]
+  var cmd = @["symbolic-ref", "HEAD", "--short"]
   var (output, exitcode) = gitCmd(cmd, dir)
-
-  if exitcode == 128: # no HEAD, empty repo
-    return "master"
+  if exitcode == 0:
+    return output.strip
 
   cmd = @["describe", "--all", "--contains", "--always", "HEAD"]
   (output, exitcode) = gitCmd(cmd, dir)

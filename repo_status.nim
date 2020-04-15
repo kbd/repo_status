@@ -149,15 +149,9 @@ proc formatStashes(status: GitStatus): string =
 
 
 proc styleWrite(color: ForegroundColor, value: string) =
-  stdout.write "%{"
-  stdout.write ansiForegroundColorCode(color)
-  stdout.write "%}"
-
+  stdout.write "%{", ansiForegroundColorCode(color), "%}"
   stdout.write value
-
-  stdout.write "%{"
-  stdout.write ansiForegroundColorCode(fgDefault)
-  stdout.write "%}"
+  stdout.write "%{", ansiForegroundColorCode(fgDefault), "%}"
 
 
 proc writeStatusStr(status: GitStatus) =

@@ -33,6 +33,10 @@ type
     status: Table[StatusCode, int]
     stash: Table[string, int]
 
+type
+  Shell = enum
+    zsh, interactive
+
 
 proc parse(statusCode: string): StatusCode =
   # see https://git-scm.com/docs/git-status#_short_format for meaning of codes
@@ -148,13 +152,20 @@ proc formatStashes(status: GitStatus): string =
     result &= 'A'
 
 
-proc styleWrite(color: ForegroundColor, value: string) =
-  stdout.write "%{", ansiForegroundColorCode(color), "%}"
+proc writeFormat(shell: Shell, code: string) =
+  if shell == zsh:
+    stdout.write "%{", code, "%}"
+  else:
+    stdout.write code
+
+
+proc styleWrite(shell: Shell, color: ForegroundColor, value: string) =
+  writeFormat shell, ansiForegroundColorCode(color)
   stdout.write value
-  stdout.write "%{", ansiForegroundColorCode(fgDefault), "%}"
+  writeFormat shell, ansiForegroundColorCode(fgDefault)
 
 
-proc writeStatusStr(status: GitStatus) =
+proc writeStatusStr(shell: Shell, status: GitStatus) =
   # o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
   let format = [
     (fgGreen, "↑", ahead),
@@ -169,11 +180,11 @@ proc writeStatusStr(status: GitStatus) =
 
   # print state
   if status.state != "":
-    styleWrite fgMagenta, status.state
+    styleWrite shell, fgMagenta, status.state
     stdout.write ' '
 
   # print branch
-  styleWrite fgYellow, status.branch
+  styleWrite shell, fgYellow, status.branch
 
   # print stats
   var stats: seq[tuple[color: ForegroundColor, value: string]]
@@ -191,7 +202,7 @@ proc writeStatusStr(status: GitStatus) =
   if len(stats) > 0:
     stdout.write ' '
     for (color, value) in stats:
-      styleWrite color, value
+      styleWrite shell, color, value
 
 
 proc getRepoBranch(dir: string): string =
@@ -247,21 +258,13 @@ proc isGitRepo(dir: string): bool =
   return exitcode == 0
 
 
-proc printRepoStatus(dir: string): int =
-  # check if in git repo
-  if not isGitRepo(dir):
-    return 2 # specific error code for 'not in a repository'
-
-  # get repo info
-  var gitstatus = (
+proc getFullRepoStatus(dir: string): GitStatus =
+  (
     state: getRepoState(dir),
     branch: getRepoBranch(dir),
     status: getRepoStatus(dir),
     stash: getRepoStashCounts(dir),
   )
-
-  # format the status codes into a string suitable for printing in the prompt
-  writeStatusStr(gitstatus)
 
 
 proc parseOpts(): seq[string] =
@@ -286,9 +289,20 @@ proc parseOpts(): seq[string] =
 
 
 proc main(dirs: seq[string]): int =
+  let is_zsh = os.getEnv("SHELL").contains("zsh")
+  let shell = if terminal.isatty(stdout) or not is_zsh:
+      interactive
+    else:
+      zsh
+
   for dir in dirs:
-    var err = printRepoStatus(dir)
-    result = max(err, result)
+    if not isGitRepo(dir):
+      stderr.write(&"'{dir}' not a git repo") # specific error code for 'not in a repository'
+      result = max(2, result)
+      continue
+
+    let gitstatus = getFullRepoStatus(dir)
+    writeStatusStr(shell, gitstatus)
 
 
 if isMainModule:

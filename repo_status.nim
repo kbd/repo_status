@@ -267,42 +267,30 @@ proc getFullRepoStatus(dir: string): GitStatus =
   )
 
 
-proc parseOpts(): seq[string] =
-  # parse args
-  # git -C <path> rev-parse
-  var p = initOptParser()
+proc parseOpts(): string =
+  result = "."
 
-  # give a list of directories to get the status for
-  # if no directory provided, use .
-  var dirs: seq[string]
+  var p = initOptParser()
   for kind, key, val in p.getopt():
     case kind
     of cmdArgument:
-      dirs.add(key)
+      result = key
     else:
       echo &"invalid command line argument: {kind}, {key}, {val}"
 
-  if len(dirs) == 0:
-    dirs.add(".")
 
-  return dirs
+proc main(dir: string): int =
+  if not isGitRepo(dir):
+    return 2 # specific error code for 'not a repository'
 
-
-proc main(dirs: seq[string]): int =
   let is_zsh = os.getEnv("SHELL").contains("zsh")
   let shell = if terminal.isatty(stdout) or not is_zsh:
       interactive
     else:
       zsh
 
-  for dir in dirs:
-    if not isGitRepo(dir):
-      stderr.write(&"'{dir}' not a git repo") # specific error code for 'not in a repository'
-      result = max(2, result)
-      continue
-
-    let gitstatus = getFullRepoStatus(dir)
-    writeStatusStr(shell, gitstatus)
+  let gitstatus = getFullRepoStatus(dir)
+  writeStatusStr(shell, gitstatus)
 
 
 if isMainModule:

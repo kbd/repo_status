@@ -273,12 +273,11 @@ proc parseOpts(): seq[string] =
   # if no directory provided, use .
   var dirs: seq[string]
   for kind, key, val in p.getopt():
-    let foo = &"{kind}, {key}, {val}"
     case kind
     of cmdArgument:
       dirs.add(key)
     else:
-      echo &"invalid command line argument: {foo}"
+      echo &"invalid command line argument: {kind}, {key}, {val}"
 
   if len(dirs) == 0:
     dirs.add(".")

@@ -4,10 +4,9 @@
 
 ## Disclaimer
 
-Recently rewritten in [Nim](https://nim-lang.org/). Still getting feature-parity
-with the Python version (such as interactive use and fake data), but it's now
-good enough to switch to for use in my prompt. The Python version is still
-available as `repo_status.py`.
+Recently rewritten in [Nim](https://nim-lang.org/). Doesn't currently support
+the "fake data" commandline argument. The Python version is still available as
+`repo_status.py`.
 
 ## Introduction
 

@@ -237,20 +237,17 @@ proc getRepoStashCounts(dir: string): Table[string, int] =
 proc getRepoStatus(dir: string): Table[StatusCode, int] =
   # get and parse status codes
   let cmd = @["status", "-zb"]
-  var (output, exitcode) = gitCmd(cmd, dir)
+  var (output, _) = gitCmd(cmd, dir)
   var statusLines = output.split '\0'
 
-  # populate the result
-  # cut off first branch line and the last line, which is empty because
-  # git status -z ends in null
+  # set ahead, behind
+  (result[ahead], result[behind]) = parseAheadBehind(statusLines[0])
+
+  # cut off first branch line and the last line,
+  # which is empty because git status -z ends in null
   let statusCodes = parseStatusCodes(statusLines[1..^2])
   for s in statusCodes:
     result.mgetOrPut(s, 0) += 1
-
-  # set ahead, behind
-  let (a, b) = parseAheadBehind(statusLines[0])
-  result[ahead] = a
-  result[behind] = b
 
 
 proc isGitRepo(dir: string): bool =

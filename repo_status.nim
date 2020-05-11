@@ -82,6 +82,9 @@ proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =
   var codes: seq[StatusCode]
   var i = 0
   while i < statusLines.len:
+    if statusLines[i] == "":  # dunno why this is happening yet...
+      i.inc
+      continue
     let code = statusLines[i][0..<2]
     let c = code.parse
     if c == renamed:

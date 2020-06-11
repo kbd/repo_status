@@ -18,7 +18,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
-from subprocess import check_output, DEVNULL
+from subprocess import DEVNULL, check_output
 
 import pygit2 as git
 

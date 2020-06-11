@@ -49,7 +49,10 @@ proc parse(statusCode: string): StatusCode =
   if index == 'R':
     return renamed
   elif index != ' ':
-    return staged
+    if worktree != ' ':
+      return conflicted
+    else:
+      return staged
 
   case worktree:
     of 'A':
@@ -83,6 +86,7 @@ proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =
   var i = 0
   while i < statusLines.len:
     if statusLines[i] == "":  # dunno why this is happening yet...
+      stderr.writeLine &"Empty status line: {i}"
       i.inc
       continue
     let code = statusLines[i][0..<2]
@@ -106,7 +110,14 @@ proc gitCmd(cmd: seq[string], workingdir: string): tuple[output: string,
   return execCmdEx cmd
 
 
-proc getRepoState(git_dir_path: string): string =
+proc getGitDir(dir: string): string =
+  let (gitdir, exitcode) = gitCmd(@["rev-parse", "--git-dir"], dir)
+  if exitcode != 0:
+    stderr.writeLine &"Couldn't get git dir for {dir}"
+  return gitdir.strip
+
+
+proc getRepoState(dir: string): string =
   ## Return a code for the current repo state.
   ##
   ## Possible states:
@@ -132,9 +143,11 @@ proc getRepoState(git_dir_path: string): string =
     "REVERT_HEAD": 'V',
   }.toTable
 
+  let git_dir = getGitDir(dir)
+
   var state_set: set[char]
   for filename, status_code in checks:
-    let path = git_dir_path / filename
+    let path = git_dir / filename
     if path.fileExists:
       state_set.incl status_code
 

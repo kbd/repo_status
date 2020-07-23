@@ -253,7 +253,11 @@ proc getRepoStashCounts(dir: string): Table[string, int] =
 proc getRepoStatus(dir: string): Table[StatusCode, int] =
   # get and parse status codes
   let cmd = @["status", "-zb"]
-  var (output, _) = gitCmd(cmd, dir)
+  var (output, exitcode) = gitCmd(cmd, dir)
+  if exitcode != 0:
+    stderr.writeLine &"Couldn't get status from repository. Output: {output}"
+    quit(1)
+
   var statusLines = output.split '\0'
 
   # set ahead, behind

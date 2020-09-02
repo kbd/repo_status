@@ -85,10 +85,6 @@ proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =
   var codes: seq[StatusCode]
   var i = 0
   while i < statusLines.len:
-    if statusLines[i] == "":  # dunno why this is happening yet...
-      stderr.writeLine &"Empty status line: {i}"
-      i.inc
-      continue
     let code = statusLines[i][0..<2]
     let c = code.parse
     if c == renamed:
@@ -258,14 +254,13 @@ proc getRepoStatus(dir: string): Table[StatusCode, int] =
     stderr.writeLine &"Couldn't get status from repository. Output: {output}"
     quit(1)
 
-  var statusLines = output.split '\0'
+  var statusLines = output.split('\0').filterIt(it.strip != "")
 
   # set ahead, behind
   (result[ahead], result[behind]) = parseAheadBehind(statusLines[0])
 
-  # cut off first branch line and the last line,
-  # which is empty because git status -z ends in null
-  let statusCodes = parseStatusCodes(statusLines[1..^2])
+  # cut off first line containing the branch
+  let statusCodes = parseStatusCodes(statusLines[1..^1])
   for s in statusCodes:
     result.mgetOrPut(s, 0) += 1
 

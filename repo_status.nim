@@ -144,7 +144,7 @@ proc getRepoState(dir: string): string =
   var state_set: set[char]
   for filename, status_code in checks:
     let path = git_dir / filename
-    if path.fileExists:
+    if path.fileExists or path.dirExists:
       state_set.incl status_code
 
   return join(state_set.toSeq.sorted, "")

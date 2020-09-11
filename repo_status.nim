@@ -71,10 +71,7 @@ func myparseint(s: string): int =
 
 proc parseAheadBehind(s: string): (int, int) =
   if s =~ re"[^[]+?\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]$":
-    let (ahead, behind) = (myparseint matches[0], myparseint matches[1])
-    return (ahead, behind)
-
-  return (0, 0)
+    result = (myparseint matches[0], myparseint matches[1])
 
 
 proc parseStatusCodes(statusLines: seq[string]): seq[StatusCode] =

@@ -1,6 +1,5 @@
 import
   algorithm,
-  math,
   os,
   osproc,
   parseopt,
@@ -293,11 +292,8 @@ proc main(dir: string): int =
     return 2 # specific error code for 'not a repository'
 
   let is_zsh = os.getEnv("SHELL").contains("zsh")
-  let shell = if terminal.isatty(stdout) or not is_zsh:
-      interactive
-    else:
-      zsh
-
+  let called_directly = terminal.isatty(stdout)
+  let shell = if called_directly or not is_zsh: interactive else: zsh
   let gitstatus = getFullRepoStatus(dir)
   writeStatusStr(shell, gitstatus)
 

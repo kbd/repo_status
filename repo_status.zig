@@ -1,11 +1,16 @@
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
 const print = stdout.print;
+const dp = std.debug.print;
 const os = std.os;
 const Allocator = std.mem.Allocator;
 const funcs = @import("funcs.zig");
 const proc = std.ChildProcess;
 const eql = std.mem.eql;
+const len = std.mem.len;
+const assert = std.debug.assert;
+const expect = std.testing.expect;
+const ArrayList = std.ArrayList;
 
 const Status = enum {
     ahead,
@@ -20,6 +25,7 @@ const Status = enum {
     renamed,
     unknown,
 };
+const STATUS_LEN = 11; // hand-counted. Waiting for enum arrays.
 
 const GitStatus = struct {
     state: Str,
@@ -27,31 +33,6 @@ const GitStatus = struct {
     status: std.AutoHashMap(Status, u32),
     // stash: Table[Str, int]
 };
-
-fn parse(Status: Str) Status {
-    // see https://git-scm.com/docs/git-status//_short_format for meaning of codes
-    if(eql(Str, statusCode, "??"))
-        return Status.untracked;
-
-    var index = statusCode[0];
-    var worktree = statusCode[1];
-
-    if(eql(Str, index, 'R')) {
-        return renamed;
-     } else if(!eql(Str, index, " ")) {
-        if(!eql(Str, worktree, " ")){
-            return Status.conflicted;
-        } else {
-            return Status.staged;
-        }
-     }
-    return switch (worktree) {
-        'A' => Status.added,
-        'M' => Status.modified,
-        'D' => Status.removed,
-        else => Status.unknown,
-    };
-}
 
 // func myparseint(s: Str): int =
 //     if s == "": 0 else: parseInt s
@@ -62,25 +43,6 @@ fn parse(Status: Str) Status {
 //         result = (myparseint matches[0], myparseint matches[1])
 
 
-// fn parseStatusCodes(statusLines: seq[Str]): seq[StatusCode] =
-//     //// parse the 'git status -z' output and return a sequence of codes
-//     if len(statusLines) == 0:
-//         return
-
-//     var codes: seq[StatusCode]
-//     var i = 0
-//     while i < statusLines.len:
-//         var code = statusLines[i][0..<2]
-//         var c = code.parse
-//         if c == renamed:
-//             codes.add(staged)
-//             i.inc // skip next line (the renamed file)
-//         else:
-//             codes.add(c)
-
-//         i.inc
-
-//     return codes
 
 const Str = []const u8;
 
@@ -249,33 +211,176 @@ fn getRepoBranch(dir: Str) !Str {
 //             stderr.writeLine &"Stash line didn't match: {line}"
 
 
+fn parse(statusCode: Str) Status {
+    // see https://git-scm.com/docs/git-status//_short_format for meaning of codes
+    if (eql(u8, statusCode, "??"))
+        return Status.untracked;
+
+    var index = statusCode[0];
+    var worktree = statusCode[1];
+
+    if (index == 'R') {
+        return Status.renamed;
+    } else if (index != ' ') {
+        if(worktree != ' '){
+            return Status.conflicted;
+        } else {
+            return Status.staged;
+        }
+    }
+    return switch (worktree) {
+        'A' => Status.added,
+        'M' => Status.modified,
+        'D' => Status.removed,
+        else => Status.unknown,
+    };
+}
+
+test "status is modified" {
+    var s: Status = parse(" M");
+    assert(s == Status.modified);
+}
+
+test "status is untracked" {
+    var s: Status = parse("??");
+    assert(s == Status.untracked);
+}
+
+
+// status lines look like
+//  M repo_status.zig
+//  M todo.txt
+// ?? .gitignore
+// ?? repo_status
+// ?? test
+// ?? test.nim
+// ?? test.zig
+fn parseStatusCodes(lines: *std.ArrayList(Str)) [STATUS_LEN]u32 {
+    // parse the 'git status -z' output and return a sequence of codes
+
+    var codes: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
+    if (std.mem.len(lines) == 0)
+        return codes;
+
+    var i:u32 = 0;
+    var l = std.mem.len(lines);
+    for (lines) |line| {
+        dp("Line is: '{}'\n", .{line});
+        var code = lines[i][0..2];
+        dp("Code is: '{}'\n", .{code});
+        var c = parse(code);
+        dp("Parsed as: {}\n", .{c});
+        if(c == Status.renamed){
+            codes[@enumToInt(Status.staged)] += 1;
+            i += 1;
+        } else {
+            codes[@enumToInt(c)] += 1;
+        }
+        dp("Codes[{}] is: {}\n", .{c, codes[@enumToInt(c)]});
+
+        i += 1;
+        dp("i: {}, l: {}", .{i, l});
+    }
+    dp("Codes is: {}\n", .{codes});
+    return codes;
+}
+
+pub fn listFromArray(lines: []Str) !ArrayList(Str) {
+    var result = ArrayList(Str).init(A);
+    for (lines) |line| {
+        try result.append(line);
+    }
+    return result;
+}
+
+test "parse status codes" {
+    var lines = [_]Str{
+        " M repo_status.zig",
+        " M todo.txt",
+        "?? .gitignore",
+        "?? repo_status",
+        "?? test",
+        "?? test.nim",
+        "?? test.zig",
+    };
+    var linesArray = try listFromArray(&lines);
+    var codes = try parseStatusCodes(&linesArray);
+    var modcount: u32 = 0;
+    for (codes) |count, code| {
+        if (code == @enumToInt(Status.modified)) {
+            modcount += count;
+        }
+    }
+    assert(modcount == 2);
+}
+
+// example git status output
+// g s -zb | tr '\0' '\n'
+// ## master...origin/master [ahead 1]
+//  M repo_status.zig
+//  M todo.txt
+// ?? .gitignore
+// ?? repo_status
+// ?? test
+// ?? test.nim
+// ?? test.zig
+fn parseRepoStatus(status_txt: *Str) ![STATUS_LEN]u32 {
+    var status: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
+    var lines = std.mem.split(status_txt, "\x00");
+    var finalLines = std.ArrayList(Str).init(A);
+    var i:u32 = 0;
+    while (lines.next()) |line| {
+        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
+        var stripped_line = rstrip(line);
+        dp("stripped line: '{}'\n", .{stripped_line});
+        try finalLines.append(stripped_line);
+        i += 1;
+    }
+
+    // cut off first line containing the branch
+    // var statusCodes = parseStatusCodes(statusLines[1..]);
+
+
+
+    // }
+    // set ahead, behind
+    status[@enumToInt(Status.ahead)] = 1;
+    status[@enumToInt(Status.behind)] = 2;
+    // parseAheadBehind(statusLines[0])
+
+    dp("Got here\n", .{});
+    var statusCodes = parseStatusCodes(finalLines);
+    dp("Got here 2\n", .{});
+    return statusCodes;
+}
+
+test "parses status text" {
+    var lines =
+        \\## master...origin/master [ahead 1]
+        \\ M repo_status.zig
+        \\ M todo.txt
+        \\?? .gitignore
+        \\?? repo_status
+        \\?? test
+        \\?? test.nim
+        \\?? test.zig
+    ;
+    var buffer: [300]u8 = undefined;
+    _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
+    var status = try parseRepoStatus(&buffer);
+    dp("{}", .{@typeName(@TypeOf(status))});
+    expect(status[@enumToInt(Status.untracked)] == 5);
+}
+
 fn getRepoStatus(dir: Str) std.AutoHashMap(Status, u32) {
     // get and parse status codes
-    var cmd = [_]Str{"status", "-z"};
+    var cmd = [_]Str{"status", "-zb"};
     var result = try gitCmd(&cmd, dir);
     if (result.term.Exited != 0)
         return error.GitStatusFailed;
 
-    var map = std.AutoHashMap(Status, u32);
-
-    var lines = std.mem.split(output, "\0");
-    while (lines.next()) |line| {
-        if (eql(Str, rstrip(line), ""))
-            continue;
-
-    // cut off first line containing the branch
-    // var statusCodes = parseStatusCodes(statusLines[1..^1])
-    // for s in statusCodes:
-    //     result.mgetOrPut(s, 0) += 1
-
-
-
-    }
-    // // set ahead, behind
-    // (result[ahead], result[behind]) = parseAheadBehind(statusLines[0])
-
+    return parseRepoStatus(result.stdout);
 }
-
 
 fn isGitRepo(dir: Str) bool {
     cmd = [_]Str{"rev-parse", "--is-inside-work-tree"};

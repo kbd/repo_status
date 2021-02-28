@@ -12,6 +12,8 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const ArrayList = std.ArrayList;
 
+const Str = []const u8;
+
 const Status = enum {
     ahead,
     behind,
@@ -28,386 +30,22 @@ const Status = enum {
 const STATUS_LEN = 11; // hand-counted. Waiting for enum arrays.
 
 const GitStatus = struct {
-    state: Str,
+    // state: Str,
     branch: Str,
-    status: std.AutoHashMap(Status, u32),
+    status: [STATUS_LEN]u32,
     // stash: Table[Str, int]
 };
 
-// func myparseint(s: Str): int =
-//     if s == "": 0 else: parseInt s
+const Shell = enum {
+    zsh,
+    bash,
+    unknown,
+};
 
-
-// fn parseAheadBehind(s: Str): (int, int) =
-//     if s =~ re"[^[]+?\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]$":
-//         result = (myparseint matches[0], myparseint matches[1])
-
-
-
-const Str = []const u8;
-
-fn concatStringArray(lists: []const []Str) ![]Str {
-    return try std.mem.concat(A, Str, lists);
-}
-
-
-fn gitCmd(args: []Str, workingdir: Str) !proc.ExecResult {
-    var gitcmd = [_]Str{"git", "-C", workingdir};
-    var cmd_parts = [_][]Str{ &gitcmd, args };
-    var cmd = try concatStringArray(&cmd_parts);
-    return try run(cmd);
-}
-
-
-fn run(argv: []const Str) !proc.ExecResult {
-    return try proc.exec(.{
-        .allocator = A,
-        .argv = argv,
-    });
-}
-
-
-// fn getGitDir(dir: Str): Str =
-//     var (gitdir, exitcode) = gitCmd(@["rev-parse", "--git-dir"], dir)
-//     if exitcode != 0:
-//         stderr.writeLine &"Couldn't get git dir for {dir}"
-//     return gitdir.strip
-
-
-fn getRepoState(dir: Str) !Str {
-//     // Return a code for the current repo state.
-//     //
-//     // Possible states:
-//     //     R - rebase
-//     //     M - merge
-//     //     C - cherry-pick
-//     //     B - bisect
-//     //     V - revert
-//     //
-//     // The code returned will indicate multiple states (if that's possible?)
-//     // or the empty Str if the repo is in a normal state.
-
-//     // Unfortunately there's no porcelain to check for various git states.
-//     // Determining state is done by checking for the existence of files within
-//     // the git repository. Reference for possible checks:
-//     // https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh
-//     var checks = {
-//         "rebase-merge": 'R',
-//         "rebase-apply": 'R',
-//         "MERGE_HEAD": 'M',
-//         "CHERRY_PICK_HEAD": 'C',
-//         "BISECT_LOG": 'B',
-//         "REVERT_HEAD": 'V',
-//     }.toTable
-
-//     var git_dir = getGitDir(dir)
-
-//     var state_set: set[char]
-//     for filename, status_code in checks:
-//         var path = git_dir / filename
-//         if path.fileExists or path.dirExists:
-//             state_set.incl status_code
-
-//     return join(state_set.toSeq.sorted, "")
-    return "";
-}
-
-// fn formatStashes(status: GitStatus): Str =
-//     //// Return a Str like 1A for one stash on current branch and one autostash
-//     //// todo: also display count of all stashes?
-//     // var total = sum(toSeq(status.stash.values))
-//     var branch_count = status.stash.getOrDefault(status.branch)
-//     var autostash = status.stash.getOrDefault("-autostash")
-
-//     if branch_count > 0:
-//         result &= $branch_count
-
-//     if autostash > 0:
-//         result &= 'A'
-
-
-// fn writeFormat(shell: Shell, code: Str) =
-//     if shell == zsh:
-//         stdout.write "%{", code, "%}"
-//     else:
-//         stdout.write code
-
-
-// fn styleWrite(shell: Shell, color: ForegroundColor, value: Str) =
-//     writeFormat shell, ansiForegroundColorCode(color)
-//     stdout.write value
-//     writeFormat shell, ansiForegroundColorCode(fgDefault)
-
-
-// fn writeStatusStr(shell: Shell, status: GitStatus) =
-//     // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
-//     var format = [
-//         (fgGreen, "↑", ahead),
-//         (fgRed, "↓", behind),
-//         (fgGreen, "●", staged),
-//         (fgYellow, "+", modified),
-//         (fgRed, "-", removed),
-//         (fgCyan, "…", untracked),
-//         (fgBlue, "⚑", stashed),
-//         (fgRed, "✖", conflicted),
-//     ]
-
-//     // print state
-//     if status.state != "":
-//         styleWrite shell, fgMagenta, status.state
-//         stdout.write ' '
-
-//     // print branch
-//     styleWrite shell, fgYellow, status.branch
-
-//     // print stats
-//     var stats: seq[tuple[color: ForegroundColor, value: Str]]
-//     for (color, token, code) in format:
-//         if code == stashed:
-//             var stashstr = formatStashes(status)
-//             if stashstr == "":
-//                 continue
-//             stats.add((color, token & stashstr))
-//         else:
-//             var num = status.status.getOrDefault(code)
-//             if num != 0:
-//                 stats.add((color, token & $num))
-
-//     if len(stats) > 0:
-//         stdout.write ' '
-//         for (color, value) in stats:
-//             styleWrite shell, color, value
-
-fn rstrip(s: Str) Str {
-    return std.mem.trim(u8, s, " \n");
-}
-
-fn getRepoBranch(dir: Str) !Str {
-    var cmd1 = [_]Str{"symbolic-ref", "HEAD", "--short"};
-    var result = try gitCmd(&cmd1, dir);
-    if (result.term.Exited == 0)
-        return rstrip(result.stdout);
-
-    var cmd2 = [_]Str{"describe", "--all", "--contains", "--always", "HEAD"};
-    result = try gitCmd(&cmd2, dir);
-    return rstrip(result.stdout);
-}
-
-// fn getRepoStashCounts(dir: Str): Table[Str, int] =
-//     var (output, exitcode) = gitCmd(@["stash", "list"], dir)
-//     if exitcode != 0:
-//         stderr.writeLine &"Couldn't get stash list ({exitcode})"
-
-//     // stash output looks like:
-//     // stash@{0}: On (no branch): push file to stash
-//     // stash@{1}: WIP on master: 8dbbdc4 commit one
-//     // https://www.git-scm.com/docs/git-stash//Documentation/git-stash.txt-listltoptionsgt
-//     for line in output.splitLines[0..^2]:
-//         if line =~ re"^[^:]+:[^:]+?(\S+):":
-//             result.mgetOrPut(matches[0], 0) += 1
-//         elif line.split(':')[1].Strip == "autostash":
-//             result.mgetOrPut("-autostash", 0) += 1
-//         else:
-//             stderr.writeLine &"Stash line didn't match: {line}"
-
-
-fn parse(statusCode: Str) Status {
-    // see https://git-scm.com/docs/git-status//_short_format for meaning of codes
-    if (eql(u8, statusCode, "??"))
-        return Status.untracked;
-
-    var index = statusCode[0];
-    var worktree = statusCode[1];
-
-    if (index == 'R') {
-        return Status.renamed;
-    } else if (index != ' ') {
-        if(worktree != ' '){
-            return Status.conflicted;
-        } else {
-            return Status.staged;
-        }
-    }
-    return switch (worktree) {
-        'A' => Status.added,
-        'M' => Status.modified,
-        'D' => Status.removed,
-        else => Status.unknown,
-    };
-}
-
-test "status is modified" {
-    var s: Status = parse(" M");
-    assert(s == Status.modified);
-}
-
-test "status is untracked" {
-    var s: Status = parse("??");
-    assert(s == Status.untracked);
-}
-
-
-// status lines look like
-//  M repo_status.zig
-//  M todo.txt
-// ?? .gitignore
-// ?? repo_status
-// ?? test
-// ?? test.nim
-// ?? test.zig
-fn parseStatusCodes(lines: *std.ArrayList(Str)) [STATUS_LEN]u32 {
-    // parse the 'git status -z' output and return a sequence of codes
-
-    var codes: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
-    if (std.mem.len(lines) == 0)
-        return codes;
-
-    var i:u32 = 0;
-    var l = std.mem.len(lines);
-    for (lines) |line| {
-        dp("Line is: '{}'\n", .{line});
-        var code = lines[i][0..2];
-        dp("Code is: '{}'\n", .{code});
-        var c = parse(code);
-        dp("Parsed as: {}\n", .{c});
-        if(c == Status.renamed){
-            codes[@enumToInt(Status.staged)] += 1;
-            i += 1;
-        } else {
-            codes[@enumToInt(c)] += 1;
-        }
-        dp("Codes[{}] is: {}\n", .{c, codes[@enumToInt(c)]});
-
-        i += 1;
-        dp("i: {}, l: {}", .{i, l});
-    }
-    dp("Codes is: {}\n", .{codes});
-    return codes;
-}
-
-pub fn listFromArray(lines: []Str) !ArrayList(Str) {
-    var result = ArrayList(Str).init(A);
-    for (lines) |line| {
-        try result.append(line);
-    }
-    return result;
-}
-
-test "parse status codes" {
-    var lines = [_]Str{
-        " M repo_status.zig",
-        " M todo.txt",
-        "?? .gitignore",
-        "?? repo_status",
-        "?? test",
-        "?? test.nim",
-        "?? test.zig",
-    };
-    var linesArray = try listFromArray(&lines);
-    var codes = try parseStatusCodes(&linesArray);
-    var modcount: u32 = 0;
-    for (codes) |count, code| {
-        if (code == @enumToInt(Status.modified)) {
-            modcount += count;
-        }
-    }
-    assert(modcount == 2);
-}
-
-// example git status output
-// g s -zb | tr '\0' '\n'
-// ## master...origin/master [ahead 1]
-//  M repo_status.zig
-//  M todo.txt
-// ?? .gitignore
-// ?? repo_status
-// ?? test
-// ?? test.nim
-// ?? test.zig
-fn parseRepoStatus(status_txt: *Str) ![STATUS_LEN]u32 {
-    var status: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
-    var lines = std.mem.split(status_txt, "\x00");
-    var finalLines = std.ArrayList(Str).init(A);
-    var i:u32 = 0;
-    while (lines.next()) |line| {
-        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
-        var stripped_line = rstrip(line);
-        dp("stripped line: '{}'\n", .{stripped_line});
-        try finalLines.append(stripped_line);
-        i += 1;
-    }
-
-    // cut off first line containing the branch
-    // var statusCodes = parseStatusCodes(statusLines[1..]);
-
-
-
-    // }
-    // set ahead, behind
-    status[@enumToInt(Status.ahead)] = 1;
-    status[@enumToInt(Status.behind)] = 2;
-    // parseAheadBehind(statusLines[0])
-
-    dp("Got here\n", .{});
-    var statusCodes = parseStatusCodes(finalLines);
-    dp("Got here 2\n", .{});
-    return statusCodes;
-}
-
-test "parses status text" {
-    var lines =
-        \\## master...origin/master [ahead 1]
-        \\ M repo_status.zig
-        \\ M todo.txt
-        \\?? .gitignore
-        \\?? repo_status
-        \\?? test
-        \\?? test.nim
-        \\?? test.zig
-    ;
-    var buffer: [300]u8 = undefined;
-    _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
-    var status = try parseRepoStatus(&buffer);
-    dp("{}", .{@typeName(@TypeOf(status))});
-    expect(status[@enumToInt(Status.untracked)] == 5);
-}
-
-fn getRepoStatus(dir: Str) std.AutoHashMap(Status, u32) {
-    // get and parse status codes
-    var cmd = [_]Str{"status", "-zb"};
-    var result = try gitCmd(&cmd, dir);
-    if (result.term.Exited != 0)
-        return error.GitStatusFailed;
-
-    return parseRepoStatus(result.stdout);
-}
-
-fn isGitRepo(dir: Str) bool {
-    cmd = [_]Str{"rev-parse", "--is-inside-work-tree"};
-    var result = try gitCmd(&cmd, dir);
-    return result.term.Exited == 0;
-}
-
-// fn getFullRepoStatus(dir: Str) !GitStatus {
-//     return GitStatus{
-//         .state = try getRepoState(dir),
-//         .branch = try getRepoBranch(dir),
-//         .status = try getRepoStatus(dir),
-//         // .stash = getRepoStashCounts(dir),
-//     };
-// }
-
-// fn parseOpts(): Str =
-//     result = "."
-
-//     var p = initOptParser()
-//     for kind, key, val in p.getopt():
-//         case kind
-//         of cmdArgument:
-//             result = key
-//         else:
-//             echo &"invalid command line argument: {kind}, {key}, {val}"
-
+const AheadBehind = struct {
+    ahead: u32 = 0,
+    behind: u32 = 0,
+};
 
 pub const Escapes = struct {
     o: [:0]const u8 = undefined,
@@ -443,38 +81,414 @@ pub var A: *Allocator = undefined;
 pub var E: Escapes = undefined;
 pub var CWD: Str = undefined;
 
-pub fn main() !int {
+fn concatStringArray(lists: []const []Str) ![]Str {
+    return try std.mem.concat(A, Str, lists);
+}
+
+fn gitCmd(args: []Str, workingdir: Str) !proc.ExecResult {
+    var gitcmd = [_]Str{"git", "-C", workingdir};
+    var cmd_parts = [_][]Str{ &gitcmd, args };
+    var cmd = try concatStringArray(&cmd_parts);
+    return try run(cmd);
+}
+
+fn run(argv: []const Str) !proc.ExecResult {
+    return try proc.exec(.{
+        .allocator = A,
+        .argv = argv,
+    });
+}
+
+// fn getState(dir: Str) !Str {
+//     // Return a code for the current repo state.
+//     //
+//     // Possible states:
+//     //     R - rebase
+//     //     M - merge
+//     //     C - cherry-pick
+//     //     B - bisect
+//     //     V - revert
+//     //
+//     // The code returned will indicate multiple states (if that's possible?)
+//     // or the empty Str if the repo is in a normal state.
+
+//     // Unfortunately there's no porcelain to check for various git states.
+//     // Determining state is done by checking for the existence of files within
+//     // the git repository. Reference for possible checks:
+//     // https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh
+//     var checks = {
+//         "rebase-merge": 'R',
+//         "rebase-apply": 'R',
+//         "MERGE_HEAD": 'M',
+//         "CHERRY_PICK_HEAD": 'C',
+//         "BISECT_LOG": 'B',
+//         "REVERT_HEAD": 'V',
+//     }.toTable
+
+//     var git_dir = getGitDir(dir)
+
+//     var state_set: set[char]
+//     for filename, status_code in checks:
+//         var path = git_dir / filename
+//         if path.fileExists or path.dirExists:
+//             state_set.incl status_code
+
+//     return join(state_set.toSeq.sorted, "")
+//     return "";
+// }
+
+// fn formatStashes(status: GitStatus): Str =
+//     //// Return a Str like 1A for one stash on current branch and one autostash
+//     //// todo: also display count of all stashes?
+//     // var total = sum(toSeq(status.stash.values))
+//     var branch_count = status.stash.getOrDefault(status.branch)
+//     var autostash = status.stash.getOrDefault("-autostash")
+
+//     if branch_count > 0:
+//         result &= $branch_count
+
+//     if autostash > 0:
+//         result &= 'A'
+
+
+fn rstrip(s: Str) Str {
+    return std.mem.trim(u8, s, " \n");
+}
+
+fn getBranch(dir: Str) !Str {
+    var cmd1 = [_]Str{"symbolic-ref", "HEAD", "--short"};
+    var result = try gitCmd(&cmd1, dir);
+    if (result.term.Exited == 0)
+        return rstrip(result.stdout);
+
+    var cmd2 = [_]Str{"describe", "--all", "--contains", "--always", "HEAD"};
+    result = try gitCmd(&cmd2, dir);
+    return rstrip(result.stdout);
+}
+
+// fn getRepoStashCounts(dir: Str): Table[Str, int] =
+//     var (output, exitcode) = gitCmd(@["stash", "list"], dir)
+//     if exitcode != 0:
+//         stderr.writeLine &"Couldn't get stash list ({exitcode})"
+
+//     // stash output looks like:
+//     // stash@{0}: On (no branch): push file to stash
+//     // stash@{1}: WIP on master: 8dbbdc4 commit one
+//     // https://www.git-scm.com/docs/git-stash//Documentation/git-stash.txt-listltoptionsgt
+//     for line in output.splitLines[0..^2]:
+//         if line =~ re"^[^:]+:[^:]+?(\S+):":
+//             result.mgetOrPut(matches[0], 0) += 1
+//         elif line.split(':')[1].Strip == "autostash":
+//             result.mgetOrPut("-autostash", 0) += 1
+//         else:
+//             stderr.writeLine &"Stash line didn't match: {line}"
+
+
+fn parseCode(statusCode: Str) Status {
+    // see https://git-scm.com/docs/git-status//_short_format for meaning of codes
+    if (eql(u8, statusCode, "??"))
+        return Status.untracked;
+
+    var index = statusCode[0];
+    var worktree = statusCode[1];
+
+    if (index == 'R') {
+        return Status.renamed;
+    } else if (index != ' ') {
+        if(worktree != ' '){
+            return Status.conflicted;
+        } else {
+            return Status.staged;
+        }
+    }
+    return switch (worktree) {
+        'A' => Status.added,
+        'M' => Status.modified,
+        'D' => Status.removed,
+        else => Status.unknown,
+    };
+}
+
+test "parse codes" {
+    var s: Status = parseCode(" M");
+    assert(s == Status.modified);
+
+    s = parseCode("??");
+    assert(s == Status.untracked);
+}
+
+fn parseStatusLines(lines: []Str) [STATUS_LEN]u32 {
+    var codes: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
+    if (lines.len == 0)
+        return codes;
+
+    var skip = false;
+    for (lines) |line| {
+        if (skip) {
+            skip = false;
+            continue;
+        }
+        if (std.mem.eql(u8, rstrip(line), ""))
+            continue;
+
+        var code = line[0..2];
+        var c = parseCode(code);
+        if(c == Status.renamed){
+            // renamed files have two lines of status, skip the next line
+            codes[@enumToInt(Status.staged)] += 1;
+            skip = true;
+        } else {
+            codes[@enumToInt(c)] += 1;
+        }
+    }
+    return codes;
+}
+
+test "parse lines" {
+    var lines = [_]Str{
+        " M repo_status.zig",
+        " M todo.txt",
+        "?? .gitignore",
+        "?? repo_status",
+        "?? test",
+        "?? test.nim",
+        "?? test.zig",
+    };
+    var codes = parseStatusLines(&lines);
+    var i = @enumToInt(Status.modified);
+    assert(codes[i] == 2);
+    assert(2 == 2);
+}
+
+fn parseAheadBehind(source: Str) AheadBehind {
+    var result = AheadBehind{};
+
+    var bracketPos = std.mem.indexOf(u8, source, "[") orelse return result;
+    if (std.mem.indexOfPos(u8, source, bracketPos+1, "ahead ")) |aheadPos|
+        result.ahead = parseDigit(source[aheadPos+6..]);
+    if (std.mem.indexOfPos(u8, source, bracketPos+1, "behind ")) |behindPos|
+        result.behind = parseDigit(source[behindPos+7..]);
+
+    return result;
+}
+
+test "parse ahead/behind" {
+    var source = "## master...origin/master [ahead 3, behind 2]";
+    var result = parseAheadBehind(source);
+    expect(result.ahead == 3);
+    expect(result.behind == 2);
+
+    var source2 = "## master...origin/master";
+    result = parseAheadBehind(source2);
+    expect(result.ahead == 0);
+    expect(result.behind == 0);
+
+    var source3 = "## master...origin/master [ahead 3]";
+    result = parseAheadBehind(source3);
+    expect(result.ahead == 3);
+    expect(result.behind == 0);
+}
+
+fn parseDigit(source: Str) u32 {
+    // source should be a slice pointing to the right position in the string
+    // find the integer at the start of 'source', return 0 if no digits found
+    var it = std.mem.tokenize(source, ", ]");
+    var val = it.next() orelse return 0;
+    return std.fmt.parseInt(u32, val, 10) catch return 0;
+}
+
+test "parse digits from string" {
+    var str = "123]";
+    var digit = parseDigit(str);
+    expect(digit == 123);
+}
+
+// example git status output
+// g s -zb | tr '\0' '\n'
+// ## master...origin/master [ahead 1]
+//  M repo_status.zig
+//  M todo.txt
+// ?? .gitignore
+// ?? repo_status
+// ?? test
+// ?? test.nim
+// ?? test.zig
+fn parseStatus(status_txt: *Str) [STATUS_LEN]u32 {
+    var status: [STATUS_LEN]u32 = [_]u32{0} ** STATUS_LEN;
+    var lines = std.mem.split(status_txt.*, "\x00");
+    var finalLines = std.ArrayList(Str).init(A);
+    defer finalLines.deinit();
+    while (lines.next()) |line| {
+        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
+        var stripped_line = rstrip(line);
+        finalLines.append(stripped_line) catch |err| {
+            dp("Error when appending: {}", .{err});
+            return status;
+        };
+    }
+
+    var x = finalLines.toOwnedSlice();
+
+    // set ahead, behind
+    var ahead_behind = parseAheadBehind(x[0]);
+    status[@enumToInt(Status.ahead)] = ahead_behind.ahead;
+    status[@enumToInt(Status.behind)] = ahead_behind.behind;
+
+    var statusCodes = parseStatusLines(x[1..]);
+    return statusCodes;
+}
+
+test "parse status" {
+    var lines =
+        \\## master...origin/master [ahead 1]
+        \\ M repo_status.zig
+        \\ M todo.txt
+        \\?? .gitignore
+        \\?? repo_status
+        \\?? test
+        \\?? test.nim
+        \\?? test.zig
+    ;
+    A = std.testing.allocator;
+    var buffer: [300]u8 = undefined;
+    _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
+    var x: Str = &buffer;
+    var status = parseStatus(&x);
+    expect(status[@enumToInt(Status.untracked)] == 5);
+}
+
+fn getStatus(dir: Str) ![STATUS_LEN]u32 {
+    // get and parse status codes
+    var cmd = [_]Str{"status", "-zb"};
+    var result = try gitCmd(&cmd, dir);
+    if (result.term.Exited != 0)
+        return error.GitStatusFailed;
+
+    return parseStatus(&result.stdout);
+}
+
+fn isGitRepo(dir: Str) bool {
+    var cmd = [_]Str{"rev-parse", "--is-inside-work-tree"};
+    var result = gitCmd(&cmd, dir) catch |err| {
+        std.log.err("Couldn't read git repo at {}. Err: {}", .{dir, err});
+        return false;
+    };
+    return result.term.Exited == 0;
+}
+
+fn writeFormat(shell: Shell, code: Str) !void {
+    if (shell == .zsh){
+        try print("{}{}{}", .{"%{", code, "%}"});
+    } else {
+        try print("{}", .{code});
+    }
+}
+
+fn styleWrite(shell: Shell, color: Str, value: Str) !void {
+    try writeFormat(shell, color);
+    try print("{}", .{value});
+    try writeFormat(shell, C.reset);
+}
+
+fn writeStatusStr(shell: Shell, status: GitStatus) !void {
+    // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
+    var format = .{
+        // using arrays over tuples failed
+        .{.color = C.green, .token = "↑", .status = Status.ahead},
+        .{.color = C.red, .token = "↓", .status = Status.behind},
+        .{.color = C.green, .token = "●", .status = Status.staged},
+        .{.color = C.yellow, .token = "+", .status = Status.modified},
+        .{.color = C.red, .token = "-", .status = Status.removed},
+        .{.color = C.cyan, .token = "…", .status = Status.untracked},
+        .{.color = C.blue, .token = "⚑", .status = Status.stashed},
+        .{.color = C.red, .token = "✖", .status = Status.conflicted},
+    };
+
+    // print state
+    // if (!std.mem.eql(u8, status.state, "")) {
+    //     try styleWrite(shell, C.magenta, status.state);
+    //     try print(" ", .{});
+    // }
+
+    // print branch
+    try styleWrite(shell, C.yellow, status.branch);
+
+    // print stats
+    const Stat = struct {color: Str, value: Str};
+    var stats = ArrayList(Stat).init(A);
+    inline for (format) |f| {
+        if (f.status == Status.stashed) {
+            var stashstr = ""; // formatStashes(status);
+            if (stashstr == "")
+                continue;
+            // var temp = token & stashstr;
+            var temp = "";
+            try stats.append(.{.color = f.color, .value = temp});
+        } else {
+            var num = status.status[@enumToInt(f.status)];
+            if (num != 0){
+                var numstr = "5";
+                // std.fmt.formatInt(num)
+                var temp = std.mem.concat(A, u8, .{&f.token, numstr});
+                try stats.append(.{.color = f.color, .value = temp});
+            }
+        }
+    }
+
+    if (stats.items.len > 0){
+        try print(" ", .{});
+        for (stats.items) |item| {
+            try styleWrite(shell, item.color, item.value);
+        }
+    }
+}
+
+fn getFullRepoStatus(dir: Str) !GitStatus {
+    return GitStatus{
+        // .state = getState(dir),
+        .branch = try getBranch(dir),
+        .status = try getStatus(dir),
+        // .stash = getRepoStashCounts(dir),
+    };
+}
+
+pub fn main() !u8 {
     // allocator setup
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     A = &arena.allocator;
 
-    if (!isGitRepo(dir)){
+    var dir: Str = ".";
+    if (std.os.argv.len > 1)
+        dir = std.mem.spanZ(std.os.argv[1]);
+
+    if (!isGitRepo(dir))
         return 2; // specific error code for 'not a repository'
+
+    // get the specified shell and initialize escape codes
+    var shell = Shell.unknown;
+    if (std.mem.len(os.argv) > 1) {
+        var arg = std.mem.spanZ(os.argv[1]);
+        if (std.mem.eql(u8, arg, "zsh")) {
+            shell = Shell.zsh;
+        } else if((std.mem.eql(u8, arg, "bash"))) {
+            shell = Shell.bash;
+        }
     }
 
-    // escapes
-    const shell = os.getenv("SHELL") orelse "";
-    const is_zsh = std.mem.indexOf(u8, shell, "zsh") != null;
-    const called_directly = std.os.isatty(1);
-    if (called_directly or !is_zsh) {
-        E = Escapes.init("", ""); // interactive
-    } else {
-        E = Escapes.init("%{", "%}"); // zsh
+    switch (shell) {
+        .zsh => { E = Escapes.init("%{", "%}"); },
+        .bash => { E = Escapes.init("\\[", "\\]"); },
+        else => {
+            E = Escapes.init("", "");
+            const c = @cImport(@cInclude("stdlib.h"));
+            _ = c.unsetenv("SHELL"); // force 'interactive' for subprograms
+        }
     }
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    CWD = try std.os.getcwd(&buf);
 
-    var state = getRepoState(".");
-    try print("{}\n", .{state});
-
-    var branch = try getRepoBranch(CWD);
-    try print("{}\n", .{branch});
-
-    var status = getRepoStatus(".");
-    try print("{}\n", .{status});
-
-    // var gitstatus = getFullRepoStatus(dir)
-    // writeStatusStr(shell, gitstatus)
+    var status = try getFullRepoStatus(dir);
+    try writeStatusStr(shell, status);
+    return 0;
 }

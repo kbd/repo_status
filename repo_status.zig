@@ -32,7 +32,7 @@ const Status = enum {
 const STATUS_LEN = 11; // hand-counted. Waiting for enum arrays.
 
 const GitStatus = struct {
-    // state: Str,
+    state: Str,
     branch: Str,
     status: [STATUS_LEN]u32,
     // stash: Table[Str, int]
@@ -101,43 +101,64 @@ fn run(argv: []const Str) !proc.ExecResult {
     });
 }
 
-// fn getState(dir: Str) !Str {
-//     // Return a code for the current repo state.
-//     //
-//     // Possible states:
-//     //     R - rebase
-//     //     M - merge
-//     //     C - cherry-pick
-//     //     B - bisect
-//     //     V - revert
-//     //
-//     // The code returned will indicate multiple states (if that's possible?)
-//     // or the empty Str if the repo is in a normal state.
+fn getState(dir: Str) !Str {
+    // Return a code for the current repo state.
+    //
+    // Possible states:
+    //     R - rebase
+    //     M - merge
+    //     C - cherry-pick
+    //     B - bisect
+    //     V - revert
+    //
+    // The code returned will indicate multiple states (if that's possible?)
+    // or the empty string if the repo is in a normal state.
 
-//     // Unfortunately there's no porcelain to check for various git states.
-//     // Determining state is done by checking for the existence of files within
-//     // the git repository. Reference for possible checks:
-//     // https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh
-//     var checks = {
-//         "rebase-merge": 'R',
-//         "rebase-apply": 'R',
-//         "MERGE_HEAD": 'M',
-//         "CHERRY_PICK_HEAD": 'C',
-//         "BISECT_LOG": 'B',
-//         "REVERT_HEAD": 'V',
-//     }.toTable
+    // Unfortunately there's no porcelain to check for various git states.
+    // Determining state is done by checking for the existence of files within
+    // the git repository. Reference for possible checks:
+    // https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh
+    const checks = .{
+        .{.filename = "rebase-merge", .code = "R"},
+        .{.filename = "rebase-apply", .code = "R"},
+        .{.filename = "MERGE_HEAD", .code = "M"},
+        .{.filename = "CHERRY_PICK_HEAD", .code = "C"},
+        .{.filename = "BISECT_LOG", .code = "B"},
+        .{.filename = "REVERT_HEAD", .code = "V"},
+    };
 
-//     var git_dir = getGitDir(dir)
+    var cmd = [_]Str{"rev-parse", "--git-dir"};
+    var result = try gitCmd(&cmd, dir);
+    if (result.term.Exited != 0)
+        return error.GetGitDirFailed;
 
-//     var state_set: set[char]
-//     for filename, status_code in checks:
-//         var path = git_dir / filename
-//         if path.fileExists or path.dirExists:
-//             state_set.incl status_code
+    var git_dir = rstrip(result.stdout);
 
-//     return join(state_set.toSeq.sorted, "")
-//     return "";
-// }
+    var state_set = std.BufSet.init(A);
+    inline for (checks) |check| {
+        var path = try std.fs.path.join(A, &[_]Str{git_dir, check.filename});
+        if (exists(path))
+            try state_set.put(check.code);
+    }
+
+    var list = std.ArrayList(Str).init(A);
+    var it = state_set.iterator();
+    while (it.next()) |entry| {
+        try list.append(entry.key);
+    }
+    return std.mem.join(A, "", list.items);
+    // sort later, not a good use of time
+    // std.sort.sort(u8, state_set)
+}
+
+fn access(pth: Str, flags: std.fs.File.OpenFlags) !void {
+    try std.fs.cwd().access(pth, flags);
+}
+
+fn exists(pth: Str) bool {
+    access(pth, .{}) catch return false;
+    return true;
+}
 
 // fn formatStashes(status: GitStatus): Str =
 //     //// Return a Str like 1A for one stash on current branch and one autostash
@@ -151,7 +172,6 @@ fn run(argv: []const Str) !proc.ExecResult {
 
 //     if autostash > 0:
 //         result &= 'A'
-
 
 fn rstrip(s: Str) Str {
     return std.mem.trim(u8, s, " \n");
@@ -447,8 +467,9 @@ fn writeStatusStr(shell: Shell, status: GitStatus) !void {
 fn getFullRepoStatus(dir: Str) !GitStatus {
     var branch = async getBranch(dir);
     var status = async getStatus(dir);
+    var state = async getState(dir);
     return GitStatus{
-        // .state = getState(dir),
+        .state = try await state,
         .branch = try await branch,
         .status = try await status,
         // .stash = getRepoStashCounts(dir),

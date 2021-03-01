@@ -12,6 +12,8 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const ArrayList = std.ArrayList;
 
+// pub const io_mode = .evented;
+
 const Str = []const u8;
 
 const Status = enum {
@@ -392,16 +394,16 @@ fn styleWrite(shell: Shell, color: Str, value: Str) !void {
 
 fn writeStatusStr(shell: Shell, status: GitStatus) !void {
     // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
-    var format = .{
+    const format = .{
         // using arrays over tuples failed
-        .{.color = C.green, .token = "↑", .status = Status.ahead},
-        .{.color = C.red, .token = "↓", .status = Status.behind},
-        .{.color = C.green, .token = "●", .status = Status.staged},
-        .{.color = C.yellow, .token = "+", .status = Status.modified},
-        .{.color = C.red, .token = "-", .status = Status.removed},
-        .{.color = C.cyan, .token = "…", .status = Status.untracked},
-        .{.color = C.blue, .token = "⚑", .status = Status.stashed},
-        .{.color = C.red, .token = "✖", .status = Status.conflicted},
+        .{.color = C.green, .token = @as(Str, "↑"), .status = Status.ahead},
+        .{.color = C.red, .token = @as(Str, "↓"), .status = Status.behind},
+        .{.color = C.green, .token = @as(Str, "●"), .status = Status.staged},
+        .{.color = C.yellow, .token = @as(Str, "+"), .status = Status.modified},
+        .{.color = C.red, .token = @as(Str, "-"), .status = Status.removed},
+        .{.color = C.cyan, .token = @as(Str, "…"), .status = Status.untracked},
+        .{.color = C.blue, .token = @as(Str, "⚑"), .status = Status.stashed},
+        .{.color = C.red, .token = @as(Str, "✖"), .status = Status.conflicted},
     };
 
     // print state
@@ -414,40 +416,41 @@ fn writeStatusStr(shell: Shell, status: GitStatus) !void {
     try styleWrite(shell, C.yellow, status.branch);
 
     // print stats
-    const Stat = struct {color: Str, value: Str};
-    var stats = ArrayList(Stat).init(A);
+    var printed_space = false;
     inline for (format) |f| {
+        var skip = false;
+        var str: Str = undefined;
         if (f.status == Status.stashed) {
-            var stashstr = ""; // formatStashes(status);
-            if (stashstr == "")
-                continue;
-            // var temp = token & stashstr;
-            var temp = "";
-            try stats.append(.{.color = f.color, .value = temp});
+            str = ""; // formatStashes(status);
         } else {
             var num = status.status[@enumToInt(f.status)];
-            if (num != 0){
-                var numstr = "5";
-                // std.fmt.formatInt(num)
-                var temp = std.mem.concat(A, u8, .{&f.token, numstr});
-                try stats.append(.{.color = f.color, .value = temp});
+            if (num == 0) {
+                str = "";
+            } else {
+                var buffer: [10]u8 = undefined;
+                const buf = buffer[0..];
+                str = try std.fmt.bufPrint(buf, "{}", .{num});
             }
         }
-    }
-
-    if (stats.items.len > 0){
-        try print(" ", .{});
-        for (stats.items) |item| {
-            try styleWrite(shell, item.color, item.value);
+        if (!std.mem.eql(u8, str, "")) {
+            if (!printed_space){
+                try print(" ", .{});
+                printed_space = true;
+            }
+            var strings = [_]Str{ f.token, str };
+            var temp = try std.mem.concat(A, u8, &strings);
+            try styleWrite(shell, f.color, temp);
         }
     }
 }
 
 fn getFullRepoStatus(dir: Str) !GitStatus {
+    var branch = async getBranch(dir);
+    var status = async getStatus(dir);
     return GitStatus{
         // .state = getState(dir),
-        .branch = try getBranch(dir),
-        .status = try getStatus(dir),
+        .branch = try await branch,
+        .status = try await status,
         // .stash = getRepoStashCounts(dir),
     };
 }

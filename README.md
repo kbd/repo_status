@@ -4,7 +4,7 @@
 
 ## Disclaimer
 
-Recently rewritten in [Nim](https://nim-lang.org/). Doesn't currently support
+Recently rewritten in [Zig](https://zig-lang.org/). Doesn't currently support
 the "fake data" commandline argument. The Python version is still available as
 `repo_status.py`.
 
@@ -68,5 +68,5 @@ returns error code `2`).
 ## Build instructions
 
 ```shell
-nim c -d:release repo_status.nim
+zig build-exe -OReleaseFast repo_status.zig
 ```

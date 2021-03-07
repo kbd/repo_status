@@ -468,7 +468,7 @@ fn getStatus(dir: Str) ![STATUS_LEN]u32 {
     return parseStatus(&result.stdout);
 }
 
-fn isGitRepo(dir: Str) bool {
+pub fn isGitRepo(dir: Str) bool {
     var cmd = [_]Str{ "rev-parse", "--is-inside-work-tree" };
     var result = gitCmd(&cmd, dir) catch |err| {
         std.log.err("Couldn't read git repo at {}. Err: {}", .{ dir, err });
@@ -483,7 +483,7 @@ fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
     });
 }
 
-fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
+pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
     const format = .{
         // using arrays over tuples failed
@@ -529,7 +529,7 @@ fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     }
 }
 
-fn getFullRepoStatus(dir: Str) !GitStatus {
+pub fn getFullRepoStatus(dir: Str) !GitStatus {
     var branch = async getBranch(dir);
     var status = async getStatus(dir);
     var state = async getState(dir);

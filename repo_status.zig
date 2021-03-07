@@ -557,21 +557,27 @@ pub fn main() !u8 {
     A = &arena.allocator;
 
     var dir: Str = ".";
-    if (std.os.argv.len > 1)
-        dir = std.mem.spanZ(std.os.argv[1]);
+    var shellstr: Str = "";
+    if (std.os.argv.len == 3)
+        shellstr = std.mem.spanZ(std.os.argv[1]);
 
-    if (!isGitRepo(dir))
-        return 2; // specific error code for 'not a repository'
+    if (std.os.argv.len > 1)
+        dir = std.mem.spanZ(std.os.argv[std.os.argv.len - 1]);
+
+    if (std.os.argv.len > 3) {
+        dp("Usage: repo_status [zsh|bash] [directory]\n", .{});
+        return 3;
+    }
 
     // get the specified shell and initialize escape codes
     var shell = Shell.unknown;
-    if (std.mem.len(os.argv) > 1) {
-        var arg = std.mem.spanZ(os.argv[1]);
-        if (std.mem.eql(u8, arg, "zsh")) {
-            shell = Shell.zsh;
-        } else if ((std.mem.eql(u8, arg, "bash"))) {
-            shell = Shell.bash;
-        }
+    if (std.mem.eql(u8, shellstr, "zsh")) {
+        shell = Shell.zsh;
+    } else if (std.mem.eql(u8, shellstr, "bash")) {
+        shell = Shell.bash;
+    } else if (!std.mem.eql(u8, shellstr, "")) {
+        dp("Unknown shell: '{}'\n", .{shellstr});
+        return 3;
     }
 
     switch (shell) {
@@ -583,12 +589,11 @@ pub fn main() !u8 {
         },
         else => {
             E = Escapes.init("", "");
-            const c = @cImport(@cInclude("stdlib.h"));
-            _ = c.unsetenv("SHELL"); // force 'interactive' for subprograms
         },
     }
 
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    if (!isGitRepo(dir))
+        return 2; // specific error code for 'not a repository'
 
     var status = try getFullRepoStatus(dir);
     try writeStatusStr(shell, status);

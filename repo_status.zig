@@ -100,6 +100,7 @@ fn run(argv: []const Str) !proc.ExecResult {
     return try proc.exec(.{
         .allocator = A,
         .argv = argv,
+        .max_output_bytes = std.math.maxInt(u32),
     });
 }
 

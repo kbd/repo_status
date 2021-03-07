@@ -477,21 +477,13 @@ fn isGitRepo(dir: Str) bool {
     return result.term.Exited == 0;
 }
 
-fn writeFormat(shell: Shell, code: Str) !void {
-    if (shell == .zsh) {
-        try print("{}{}{}", .{ "%{", code, "%}" });
-    } else {
-        try print("{}", .{code});
-    }
+fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
+    try print("{}{}{}{}{}{}{}", .{
+        esc.o, color, esc.c, value, esc.o, C.default, esc.c,
+    });
 }
 
-fn styleWrite(shell: Shell, color: Str, value: Str) !void {
-    try writeFormat(shell, color);
-    try print("{}", .{value});
-    try writeFormat(shell, C.default);
-}
-
-fn writeStatusStr(shell: Shell, status: GitStatus) !void {
+fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
     const format = .{
         // using arrays over tuples failed
@@ -507,12 +499,12 @@ fn writeStatusStr(shell: Shell, status: GitStatus) !void {
 
     // print state
     if (!std.mem.eql(u8, status.state, "")) {
-        try styleWrite(shell, C.magenta, status.state);
+        try styleWrite(esc, C.magenta, status.state);
         try print(" ", .{});
     }
 
     // print branch
-    try styleWrite(shell, C.yellow, status.branch);
+    try styleWrite(esc, C.yellow, status.branch);
 
     // print stats
     var printed_space = false;
@@ -532,7 +524,7 @@ fn writeStatusStr(shell: Shell, status: GitStatus) !void {
             }
             var strings = [_]Str{ f.token, str };
             var temp = try std.mem.concat(A, u8, &strings);
-            try styleWrite(shell, f.color, temp);
+            try styleWrite(esc, f.color, temp);
         }
     }
 }
@@ -596,6 +588,6 @@ pub fn main() !u8 {
         return 2; // specific error code for 'not a repository'
 
     var status = try getFullRepoStatus(dir);
-    try writeStatusStr(shell, status);
+    try writeStatusStr(E, status);
     return 0;
 }

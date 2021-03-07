@@ -69,7 +69,6 @@ pub const C = .{
     .italic_off = "\x1b[23m",
     .underline_off = "\x1b[24m",
     .reverse_off = "\x1b[27m",
-    .default = "\x1b[91m",
 
     .black = "\x1b[30m",
     .red = "\x1b[31m",
@@ -79,6 +78,7 @@ pub const C = .{
     .magenta = "\x1b[35m",
     .cyan = "\x1b[36m",
     .white = "\x1b[37m",
+    .default = "\x1b[39m",
 };
 
 pub var A: *Allocator = undefined;
@@ -134,7 +134,7 @@ fn getState(dir: Str) !Str {
     if (result.term.Exited != 0)
         return error.GetGitDirFailed;
 
-    var git_dir = rstrip(result.stdout);
+    var git_dir = strip(result.stdout);
 
     var state_set = std.BufSet.init(A);
     inline for (checks) |check| {
@@ -162,64 +162,81 @@ fn exists(pth: Str) bool {
     return true;
 }
 
-fn rstrip(s: Str) Str {
-    return std.mem.trim(u8, s, " \n");
+fn strip(s: Str) Str {
+    return std.mem.trim(u8, s, " \t\n");
 }
 
 fn getBranch(dir: Str) !Str {
     var cmd1 = [_]Str{ "symbolic-ref", "HEAD", "--short" };
     var result = try gitCmd(&cmd1, dir);
     if (result.term.Exited == 0)
-        return rstrip(result.stdout);
+        return strip(result.stdout);
 
     var cmd2 = [_]Str{ "describe", "--all", "--contains", "--always", "HEAD" };
     result = try gitCmd(&cmd2, dir);
-    return rstrip(result.stdout);
+    return strip(result.stdout);
 }
 
 fn getRepoStashCounts(dir: Str) !std.StringHashMap(u32) {
-    var cmd = [_]Str{ "stash", "list" };
+    var cmd = [_]Str{ "stash", "list", "-z" };
     var result = try gitCmd(&cmd, dir);
     if (result.term.Exited != 0)
         std.log.err("Couldn't get stash list ({})", .{result.term.Exited});
 
-    return parseRepoStash(result.stdout);
+    var lines = slurpSplit(&result.stdout, "\x00");
+    return parseRepoStash(lines);
 }
 
-fn parseRepoStash(stashlines: Str) !std.StringHashMap(u32) {
+fn getBranchNameFromStashLine(line: Str) Str {
+    var parts = slurpSplit(&line, ":");
+    if (parts.len <= 1)
+        return "";
+
+    var part = parts[1];
+    if (std.mem.eql(u8, part, " autostash"))
+        return "-autostash";
+
+    var wordstart = std.mem.lastIndexOf(u8, part, " ") orelse 0;
+    var result = part[wordstart + 1 ..];
+
+    return result;
+}
+
+test "get branch name from status line" {
+    A = std.testing.allocator;
+    var line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
+    var result = getBranchNameFromStashLine(line);
+    expect(std.mem.eql(u8, result, "master"));
+
+    line = "stash@{1}: autostash";
+    result = getBranchNameFromStashLine(line);
+    expect(std.mem.eql(u8, result, "-autostash"));
+}
+
+fn parseRepoStash(stashlines: []Str) !std.StringHashMap(u32) {
     // stash output looks like:
     // stash@{0}: On (no branch): push file to stash
     // stash@{1}: WIP on master: 8dbbdc4 commit one
+    // stash@{2}: autostash
+    //
     // https://www.git-scm.com/docs/git-stash//Documentation/git-stash.txt-listltoptionsgt
     var result = std.StringHashMap(u32).init(A);
-    var value = try result.getOrPut("master");
-    value.entry.value = 1;
-    value = try result.getOrPut("-autostash");
-    value.entry.value = 1;
-
-    //  catch |err| {
-    //     dp("Got here, err: {}", .{err});
-    // };
-    // dp("Value is {}\n", .{value});
-    // for (stashLines) |line| {
-    //     if line =~ re"^[^:]+:[^:]+?(\S+):":
-    //         result.mgetOrPut(matches[0], 0) += 1
-    //     elif line.split(':')[1].Strip == "autostash":
-    //         result.mgetOrPut("-autostash", 0) += 1
-    //     else:
-    //         stderr.writeLine &"Stash line didn't match: {line}"
-    // }
+    for (stashlines) |line| {
+        var branch = getBranchNameFromStashLine(line);
+        var entry = try result.getOrPutValue(branch, 0);
+        entry.value += 1;
+    }
     return result;
 }
 
 test "parse repo stash" {
     A = std.testing.allocator;
-    var lines =
-        \\ stash@{0}: On (no branch): push file to stash
-        \\ stash@{1}: WIP on master: 8dbbdc4 commit one
-        \\ stash@{2}: autostash
-    ;
-    var result = try parseRepoStash(lines);
+    var lines = [_]Str{
+        "stash@{0}: On (no branch): push file to stash",
+        "stash@{1}: WIP on master: 8dbbdc4 commit one",
+        "stash@{2}: autostash",
+    };
+    var result = try parseRepoStash(&lines);
     var val = result.get("master") orelse 0;
     expect(val == 1);
     val = result.get("-autostash") orelse 0;
@@ -282,7 +299,7 @@ fn parseStatusLines(lines: []Str) [STATUS_LEN]u32 {
             skip = false;
             continue;
         }
-        if (std.mem.eql(u8, rstrip(line), ""))
+        if (std.mem.eql(u8, strip(line), ""))
             continue;
 
         var code = line[0..2];
@@ -371,6 +388,38 @@ test "test string to integer" {
     expect(std.mem.eql(u8, try intToStr(123), "123"));
 }
 
+fn slurpSplit(source: *const Str, delim: Str) []Str {
+    var lines = std.mem.split(source.*, delim);
+    var finalLines = std.ArrayList(Str).init(A);
+    // defer finalLines.deinit();
+    while (lines.next()) |line| {
+        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
+        var stripped_line = strip(line);
+        if (std.mem.eql(u8, stripped_line, ""))
+            continue;
+
+        finalLines.append(line) catch |err| {
+            dp("Error when appending: {}", .{err});
+        };
+    }
+    return finalLines.toOwnedSlice();
+}
+
+test "slurp split" {
+    var lines: Str =
+        \\ abc
+        \\ def
+    ;
+    var result = slurpSplit(&lines, "\n");
+    expect(std.mem.eql(u8, result[0], " abc"));
+    expect(std.mem.eql(u8, result[1], " def"));
+
+    var str: Str = "a:b";
+    result = slurpSplit(&str, ":");
+    expect(std.mem.eql(u8, result[0], "a"));
+    expect(std.mem.eql(u8, result[1], "b"));
+}
+
 // example git status output
 // g s -zb | tr '\0' '\n'
 // ## master...origin/master [ahead 1]
@@ -382,21 +431,9 @@ test "test string to integer" {
 // ?? test.nim
 // ?? test.zig
 fn parseStatus(status_txt: *Str) [STATUS_LEN]u32 {
-    var lines = std.mem.split(status_txt.*, "\x00");
-    var finalLines = std.ArrayList(Str).init(A);
-    defer finalLines.deinit();
-    while (lines.next()) |line| {
-        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
-        var stripped_line = rstrip(line);
-        finalLines.append(stripped_line) catch |err| {
-            dp("Error when appending: {}", .{err});
-            return [_]u32{0} ** STATUS_LEN;
-        };
-    }
-
-    var x = finalLines.toOwnedSlice();
-    var status = parseStatusLines(x[1..]);
-    var ahead_behind = parseAheadBehind(x[0]);
+    var slice = slurpSplit(status_txt, "\x00");
+    var status = parseStatusLines(slice[1..]);
+    var ahead_behind = parseAheadBehind(slice[0]);
     status[@enumToInt(Status.ahead)] = ahead_behind.ahead;
     status[@enumToInt(Status.behind)] = ahead_behind.behind;
     return status;
@@ -451,7 +488,7 @@ fn writeFormat(shell: Shell, code: Str) !void {
 fn styleWrite(shell: Shell, color: Str, value: Str) !void {
     try writeFormat(shell, color);
     try print("{}", .{value});
-    try writeFormat(shell, C.reset);
+    try writeFormat(shell, C.default);
 }
 
 fn writeStatusStr(shell: Shell, status: GitStatus) !void {

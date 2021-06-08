@@ -12,7 +12,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const ArrayList = std.ArrayList;
 
-// this compile-errors on 0.7.1
+// this compile-errors on 0.7.1-0.8.0
 // https://github.com/ziglang/zig/issues/6682
 // pub const io_mode = .evented;
 
@@ -141,13 +141,13 @@ fn getState(dir: Str) !Str {
     inline for (checks) |check| {
         var path = try std.fs.path.join(A, &[_]Str{ git_dir, check.filename });
         if (exists(path))
-            try state_set.put(check.code);
+            try state_set.insert(check.code);
     }
 
     var list = std.ArrayList(Str).init(A);
     var it = state_set.iterator();
     while (it.next()) |entry| {
-        try list.append(entry.key);
+        try list.append(entry.*);
     }
     return std.mem.join(A, "", list.items);
     // sort later, not a good use of time
@@ -225,7 +225,7 @@ fn parseRepoStash(stashlines: []Str) !std.StringHashMap(u32) {
     for (stashlines) |line| {
         var branch = getBranchNameFromStashLine(line);
         var entry = try result.getOrPutValue(branch, 0);
-        entry.value += 1;
+        entry.value_ptr.* += 1;
     }
     return result;
 }
@@ -394,7 +394,6 @@ fn slurpSplit(source: *const Str, delim: Str) []Str {
     var finalLines = std.ArrayList(Str).init(A);
     // defer finalLines.deinit();
     while (lines.next()) |line| {
-        // std.debug.print("Line: '{}', type: '{}'\n", .{line, @typeName(@TypeOf(line))});
         var stripped_line = strip(line);
         if (std.mem.eql(u8, stripped_line, ""))
             continue;
@@ -472,14 +471,14 @@ fn getStatus(dir: Str) ![STATUS_LEN]u32 {
 pub fn isGitRepo(dir: Str) bool {
     var cmd = [_]Str{ "rev-parse", "--is-inside-work-tree" };
     var result = gitCmd(&cmd, dir) catch |err| {
-        std.log.err("Couldn't read git repo at {}. Err: {}", .{ dir, err });
+        std.log.err("Couldn't read git repo at {s}. Err: {s}", .{ dir, err });
         return false;
     };
     return result.term.Exited == 0;
 }
 
 fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
-    try print("{}{}{}{}{}{}{}", .{
+    try print("{s}{s}{s}{s}{s}{s}{s}", .{
         esc.o, color, esc.c, value, esc.o, C.default, esc.c,
     });
 }
@@ -569,7 +568,7 @@ pub fn main() !u8 {
     } else if (std.mem.eql(u8, shellstr, "bash")) {
         shell = Shell.bash;
     } else if (!std.mem.eql(u8, shellstr, "")) {
-        dp("Unknown shell: '{}'\n", .{shellstr});
+        dp("Unknown shell: '{s}'\n", .{shellstr});
         return 3;
     }
 

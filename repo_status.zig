@@ -4,7 +4,6 @@ const print = stdout.print;
 const dp = std.debug.print;
 const os = std.os;
 const Allocator = std.mem.Allocator;
-const funcs = @import("funcs.zig");
 const proc = std.ChildProcess;
 const eql = std.mem.eql;
 const len = std.mem.len;
@@ -81,7 +80,7 @@ pub const C = .{
     .default = "\x1b[39m",
 };
 
-pub var A: *Allocator = undefined;
+pub var A: Allocator = undefined;
 pub var E: Escapes = undefined;
 pub var CWD: Str = undefined;
 
@@ -207,11 +206,11 @@ test "get branch name from status line" {
     A = std.testing.allocator;
     var line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
     var result = getBranchNameFromStashLine(line);
-    expect(std.mem.eql(u8, result, "master"));
+    try expect(std.mem.eql(u8, result, "master"));
 
     line = "stash@{1}: autostash";
     result = getBranchNameFromStashLine(line);
-    expect(std.mem.eql(u8, result, "-autostash"));
+    try expect(std.mem.eql(u8, result, "-autostash"));
 }
 
 fn parseRepoStash(stashlines: []Str) !std.StringHashMap(u32) {
@@ -239,9 +238,9 @@ test "parse repo stash" {
     };
     var result = try parseRepoStash(&lines);
     var val = result.get("master") orelse 0;
-    expect(val == 1);
+    try expect(val == 1);
     val = result.get("-autostash") orelse 0;
-    expect(val == 1);
+    try expect(val == 1);
 }
 
 fn formatStashes(status: GitStatus) Str {
@@ -347,24 +346,24 @@ fn parseAheadBehind(source: Str) AheadBehind {
 test "parse ahead/behind" {
     var source = "## master...origin/master [ahead 3, behind 2]";
     var result = parseAheadBehind(source);
-    expect(result.ahead == 3);
-    expect(result.behind == 2);
+    try expect(result.ahead == 3);
+    try expect(result.behind == 2);
 
     var source2 = "## master...origin/master";
     result = parseAheadBehind(source2);
-    expect(result.ahead == 0);
-    expect(result.behind == 0);
+    try expect(result.ahead == 0);
+    try expect(result.behind == 0);
 
     var source3 = "## master...origin/master [ahead 3]";
     result = parseAheadBehind(source3);
-    expect(result.ahead == 3);
-    expect(result.behind == 0);
+    try expect(result.ahead == 3);
+    try expect(result.behind == 0);
 }
 
 fn strToInt(source: Str) u32 {
     // source should be a slice pointing to the right position in the string
     // find the integer at the start of 'source', return 0 if no digits found
-    var it = std.mem.tokenize(source, ", ]");
+    var it = std.mem.tokenize(u8, source, ", ]");
     var val = it.next() orelse return 0;
     return std.fmt.parseInt(u32, val, 10) catch return 0;
 }
@@ -372,7 +371,7 @@ fn strToInt(source: Str) u32 {
 test "parse digits from string" {
     var str = "123]";
     var digit = strToInt(str);
-    expect(digit == 123);
+    try expect(digit == 123);
 }
 
 fn intToStr(i: u32) !Str {
@@ -384,13 +383,13 @@ fn intToStr(i: u32) !Str {
 
 test "test string to integer" {
     A = std.testing.allocator;
-    expect(std.mem.eql(u8, try intToStr(5), "5"));
-    expect(std.mem.eql(u8, try intToStr(9), "9"));
-    expect(std.mem.eql(u8, try intToStr(123), "123"));
+    try expect(std.mem.eql(u8, try intToStr(5), "5"));
+    try expect(std.mem.eql(u8, try intToStr(9), "9"));
+    try expect(std.mem.eql(u8, try intToStr(123), "123"));
 }
 
 fn slurpSplit(source: *const Str, delim: Str) []Str {
-    var lines = std.mem.split(source.*, delim);
+    var lines = std.mem.split(u8, source.*, delim);
     var finalLines = std.ArrayList(Str).init(A);
     // defer finalLines.deinit();
     while (lines.next()) |line| {
@@ -411,13 +410,13 @@ test "slurp split" {
         \\ def
     ;
     var result = slurpSplit(&lines, "\n");
-    expect(std.mem.eql(u8, result[0], " abc"));
-    expect(std.mem.eql(u8, result[1], " def"));
+    try expect(std.mem.eql(u8, result[0], " abc"));
+    try expect(std.mem.eql(u8, result[1], " def"));
 
     var str: Str = "a:b";
     result = slurpSplit(&str, ":");
-    expect(std.mem.eql(u8, result[0], "a"));
-    expect(std.mem.eql(u8, result[1], "b"));
+    try expect(std.mem.eql(u8, result[0], "a"));
+    try expect(std.mem.eql(u8, result[1], "b"));
 }
 
 // example git status output
@@ -455,7 +454,7 @@ test "parse status" {
     _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
     var x: Str = &buffer;
     var status = parseStatus(&x);
-    expect(status[@enumToInt(Status.untracked)] == 5);
+    try expect(status[@enumToInt(Status.untracked)] == 5);
 }
 
 fn getStatus(dir: Str) ![STATUS_LEN]u32 {
@@ -509,7 +508,6 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     // print stats
     var printed_space = false;
     inline for (format) |f| {
-        var skip = false;
         var str: Str = undefined;
         if (f.status == Status.stashed) {
             str = formatStashes(status);
@@ -546,15 +544,15 @@ pub fn main() !u8 {
     // allocator setup
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    A = &arena.allocator;
+    A = arena.allocator();
 
     var dir: Str = ".";
     var shellstr: Str = "";
     if (std.os.argv.len == 3)
-        shellstr = std.mem.spanZ(std.os.argv[1]);
+        shellstr = std.mem.span(std.os.argv[1]);
 
     if (std.os.argv.len > 1)
-        dir = std.mem.spanZ(std.os.argv[std.os.argv.len - 1]);
+        dir = std.mem.span(std.os.argv[std.os.argv.len - 1]);
 
     if (std.os.argv.len > 3) {
         dp("Usage: repo_status [zsh|bash] [directory]\n", .{});

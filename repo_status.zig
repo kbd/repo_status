@@ -473,7 +473,8 @@ pub fn isGitRepo(dir: Str) bool {
         std.log.err("Couldn't read git repo at {s}. Err: {s}", .{ dir, err });
         return false;
     };
-    return result.term.Exited == 0;
+    var out = strip(result.stdout);
+    return result.term.Exited == 0 and !std.mem.eql(u8, out, "false");
 }
 
 fn styleWrite(esc: Escapes, color: Str, value: Str) !void {

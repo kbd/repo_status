@@ -1,6 +1,5 @@
 const std = @import("std");
 const stdout = std.io.getStdOut().writer();
-const print = stdout.print;
 const dp = std.debug.print;
 const os = std.os;
 const Allocator = std.mem.Allocator;
@@ -470,7 +469,7 @@ fn getStatus(dir: Str) ![STATUS_LEN]u32 {
 pub fn isGitRepo(dir: Str) bool {
     var cmd = [_]Str{ "rev-parse", "--is-inside-work-tree" };
     var result = gitCmd(&cmd, dir) catch |err| {
-        std.log.err("Couldn't read git repo at {s}. Err: {s}", .{ dir, err });
+        std.log.err("Couldn't read git repo at {s}. Err: {}", .{ dir, err });
         return false;
     };
     var out = strip(result.stdout);
@@ -478,7 +477,7 @@ pub fn isGitRepo(dir: Str) bool {
 }
 
 fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
-    try print("{s}{s}{s}{s}{s}{s}{s}", .{
+    try stdout.print("{s}{s}{s}{s}{s}{s}{s}", .{
         esc.o, color, esc.c, value, esc.o, C.default, esc.c,
     });
 }
@@ -500,7 +499,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     // print state
     if (!std.mem.eql(u8, status.state, "")) {
         try styleWrite(esc, C.magenta, status.state);
-        try print(" ", .{});
+        try stdout.print(" ", .{});
     }
 
     // print branch
@@ -518,7 +517,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
         }
         if (!std.mem.eql(u8, str, "")) {
             if (!printed_space) {
-                try print(" ", .{});
+                try stdout.print(" ", .{});
                 printed_space = true;
             }
             var strings = [_]Str{ f.token, str };
@@ -529,15 +528,15 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
 }
 
 pub fn getFullRepoStatus(dir: Str) !GitStatus {
-    var branch = async getBranch(dir);
-    var status = async getStatus(dir);
-    var state = async getState(dir);
-    var stash = async getRepoStashCounts(dir);
+    var branch = getBranch(dir);
+    var status = getStatus(dir);
+    var state = getState(dir);
+    var stash = getRepoStashCounts(dir);
     return GitStatus{
-        .state = try await state,
-        .branch = try await branch,
-        .status = try await status,
-        .stash = try await stash,
+        .state = try state,
+        .branch = try branch,
+        .status = try status,
+        .stash = try stash,
     };
 }
 

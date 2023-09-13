@@ -305,10 +305,10 @@ fn parseStatusLines(lines: []Str) [STATUS_LEN]u32 {
         var c = parseCode(code);
         if (c == Status.renamed) {
             // renamed files have two lines of status, skip the next line
-            codes[@enumToInt(Status.staged)] += 1;
+            codes[@intFromEnum(Status.staged)] += 1;
             skip = true;
         } else {
-            codes[@enumToInt(c)] += 1;
+            codes[@intFromEnum(c)] += 1;
         }
     }
     return codes;
@@ -325,7 +325,7 @@ test "parse lines" {
         "?? test.zig",
     };
     var codes = parseStatusLines(&lines);
-    var i = @enumToInt(Status.modified);
+    var i = @intFromEnum(Status.modified);
     assert(codes[i] == 2);
     assert(2 == 2);
 }
@@ -400,7 +400,7 @@ fn slurpSplit(source: *const Str, delim: Str) []Str {
             dp("Error when appending: {}", .{err});
         };
     }
-    return finalLines.toOwnedSlice();
+    return finalLines.toOwnedSlice() catch &[_]Str{};
 }
 
 test "slurp split" {
@@ -432,8 +432,8 @@ fn parseStatus(status_txt: *Str) [STATUS_LEN]u32 {
     var slice = slurpSplit(status_txt, "\x00");
     var status = parseStatusLines(slice[1..]);
     var ahead_behind = parseAheadBehind(slice[0]);
-    status[@enumToInt(Status.ahead)] = ahead_behind.ahead;
-    status[@enumToInt(Status.behind)] = ahead_behind.behind;
+    status[@intFromEnum(Status.ahead)] = ahead_behind.ahead;
+    status[@intFromEnum(Status.behind)] = ahead_behind.behind;
     return status;
 }
 
@@ -453,7 +453,7 @@ test "parse status" {
     _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
     var x: Str = &buffer;
     var status = parseStatus(&x);
-    try expect(status[@enumToInt(Status.untracked)] == 5);
+    try expect(status[@intFromEnum(Status.untracked)] == 5);
 }
 
 fn getStatus(dir: Str) ![STATUS_LEN]u32 {
@@ -512,7 +512,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
         if (f.status == Status.stashed) {
             str = formatStashes(status);
         } else {
-            var num = status.status[@enumToInt(f.status)];
+            var num = status.status[@intFromEnum(f.status)];
             str = if (num == 0) "" else try intToStr(num);
         }
         if (!std.mem.eql(u8, str, "")) {

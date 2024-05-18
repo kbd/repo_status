@@ -88,9 +88,9 @@ fn concatStringArray(lists: []const []Str) ![]Str {
 }
 
 fn gitCmd(args: []Str, workingdir: Str) !proc.ExecResult {
-    var gitcmd = [_]Str{ "git", "-C", workingdir };
-    var cmd_parts = [_][]Str{ &gitcmd, args };
-    var cmd = try concatStringArray(&cmd_parts);
+    const gitcmd = [_]Str{ "git", "-C", workingdir };
+    const cmd_parts = [_][]Str{ &gitcmd, args };
+    const cmd = try concatStringArray(&cmd_parts);
     return try run(cmd);
 }
 
@@ -129,15 +129,15 @@ fn getState(dir: Str) !Str {
     };
 
     var cmd = [_]Str{ "rev-parse", "--git-dir" };
-    var result = try gitCmd(&cmd, dir);
+    const result = try gitCmd(&cmd, dir);
     if (result.term.Exited != 0)
         return error.GetGitDirFailed;
 
-    var git_dir = strip(result.stdout);
+    const git_dir = strip(result.stdout);
 
     var state_set = std.BufSet.init(A);
     inline for (checks) |check| {
-        var path = try std.fs.path.join(A, &[_]Str{ git_dir, check.filename });
+        const path = try std.fs.path.join(A, &[_]Str{ git_dir, check.filename });
         if (exists(path))
             try state_set.insert(check.code);
     }
@@ -182,12 +182,12 @@ fn getRepoStashCounts(dir: Str) !std.StringHashMap(u32) {
     if (result.term.Exited != 0)
         std.log.err("Couldn't get stash list ({})", .{result.term.Exited});
 
-    var lines = slurpSplit(&result.stdout, "\x00");
+    const lines = slurpSplit(&result.stdout, "\x00");
     return parseRepoStash(lines);
 }
 
 fn getBranchNameFromStashLine(line: Str) Str {
-    var parts = slurpSplit(&line, ":");
+    const parts = slurpSplit(&line, ":");
     if (parts.len <= 1)
         return "";
 
@@ -195,8 +195,8 @@ fn getBranchNameFromStashLine(line: Str) Str {
     if (std.mem.eql(u8, part, " autostash"))
         return "-autostash";
 
-    var wordstart = std.mem.lastIndexOf(u8, part, " ") orelse 0;
-    var result = part[wordstart + 1 ..];
+    const wordstart = std.mem.lastIndexOf(u8, part, " ") orelse 0;
+    const result = part[wordstart + 1 ..];
 
     return result;
 }
@@ -221,8 +221,8 @@ fn parseRepoStash(stashlines: []Str) !std.StringHashMap(u32) {
     // https://www.git-scm.com/docs/git-stash//Documentation/git-stash.txt-listltoptionsgt
     var result = std.StringHashMap(u32).init(A);
     for (stashlines) |line| {
-        var branch = getBranchNameFromStashLine(line);
-        var entry = try result.getOrPutValue(branch, 0);
+        const branch = getBranchNameFromStashLine(line);
+        const entry = try result.getOrPutValue(branch, 0);
         entry.value_ptr.* += 1;
     }
     return result;
@@ -245,12 +245,12 @@ test "parse repo stash" {
 fn formatStashes(status: GitStatus) Str {
     // Return a Str like "1A" for one stash on current branch and one autostash
     // todo: also display count of all stashes?
-    var branch_count = status.stash.get(status.branch) orelse 0;
-    var autostash_count = status.stash.get("-autostash") orelse 0;
+    const branch_count = status.stash.get(status.branch) orelse 0;
+    const autostash_count = status.stash.get("-autostash") orelse 0;
 
-    var count = if (branch_count == 0) "" else intToStr(branch_count) catch "";
-    var autostash = if (autostash_count > 0) "A" else "";
-    var str = std.mem.concat(A, u8, &[_]Str{ count, autostash }) catch "";
+    const count = if (branch_count == 0) "" else intToStr(branch_count) catch "";
+    const autostash = if (autostash_count > 0) "A" else "";
+    const str = std.mem.concat(A, u8, &[_]Str{ count, autostash }) catch "";
     return str;
 }
 
@@ -259,8 +259,8 @@ fn parseCode(statusCode: Str) Status {
     if (eql(u8, statusCode, "??"))
         return Status.untracked;
 
-    var index = statusCode[0];
-    var worktree = statusCode[1];
+    const index = statusCode[0];
+    const worktree = statusCode[1];
 
     if (index == 'R') {
         return Status.renamed;
@@ -301,8 +301,8 @@ fn parseStatusLines(lines: []Str) [STATUS_LEN]u32 {
         if (std.mem.eql(u8, strip(line), ""))
             continue;
 
-        var code = line[0..2];
-        var c = parseCode(code);
+        const code = line[0..2];
+        const c = parseCode(code);
         if (c == Status.renamed) {
             // renamed files have two lines of status, skip the next line
             codes[@intFromEnum(Status.staged)] += 1;
@@ -324,8 +324,8 @@ test "parse lines" {
         "?? test.nim",
         "?? test.zig",
     };
-    var codes = parseStatusLines(&lines);
-    var i = @intFromEnum(Status.modified);
+    const codes = parseStatusLines(&lines);
+    const i = @intFromEnum(Status.modified);
     assert(codes[i] == 2);
     assert(2 == 2);
 }
@@ -333,7 +333,7 @@ test "parse lines" {
 fn parseAheadBehind(source: Str) AheadBehind {
     var result = AheadBehind{};
 
-    var bracketPos = std.mem.indexOf(u8, source, "[") orelse return result;
+    const bracketPos = std.mem.indexOf(u8, source, "[") orelse return result;
     if (std.mem.indexOfPos(u8, source, bracketPos + 1, "ahead ")) |aheadPos|
         result.ahead = strToInt(source[aheadPos + 6 ..]);
     if (std.mem.indexOfPos(u8, source, bracketPos + 1, "behind ")) |behindPos|
@@ -343,17 +343,17 @@ fn parseAheadBehind(source: Str) AheadBehind {
 }
 
 test "parse ahead/behind" {
-    var source = "## master...origin/master [ahead 3, behind 2]";
+    const source = "## master...origin/master [ahead 3, behind 2]";
     var result = parseAheadBehind(source);
     try expect(result.ahead == 3);
     try expect(result.behind == 2);
 
-    var source2 = "## master...origin/master";
+    const source2 = "## master...origin/master";
     result = parseAheadBehind(source2);
     try expect(result.ahead == 0);
     try expect(result.behind == 0);
 
-    var source3 = "## master...origin/master [ahead 3]";
+    const source3 = "## master...origin/master [ahead 3]";
     result = parseAheadBehind(source3);
     try expect(result.ahead == 3);
     try expect(result.behind == 0);
@@ -363,18 +363,18 @@ fn strToInt(source: Str) u32 {
     // source should be a slice pointing to the right position in the string
     // find the integer at the start of 'source', return 0 if no digits found
     var it = std.mem.tokenize(u8, source, ", ]");
-    var val = it.next() orelse return 0;
+    const val = it.next() orelse return 0;
     return std.fmt.parseInt(u32, val, 10) catch return 0;
 }
 
 test "parse digits from string" {
-    var str = "123]";
-    var digit = strToInt(str);
+    const str = "123]";
+    const digit = strToInt(str);
     try expect(digit == 123);
 }
 
 fn intToStr(i: u32) !Str {
-    var buffer = try A.create([10]u8);
+    const buffer = try A.create([10]u8);
     var stream = std.io.fixedBufferStream(buffer);
     try std.fmt.formatIntValue(i, "", .{}, stream.writer());
     return stream.getWritten();
@@ -392,7 +392,7 @@ fn slurpSplit(source: *const Str, delim: Str) []Str {
     var finalLines = std.ArrayList(Str).init(A);
     // defer finalLines.deinit();
     while (lines.next()) |line| {
-        var stripped_line = strip(line);
+        const stripped_line = strip(line);
         if (std.mem.eql(u8, stripped_line, ""))
             continue;
 
@@ -431,14 +431,14 @@ test "slurp split" {
 fn parseStatus(status_txt: *Str) [STATUS_LEN]u32 {
     var slice = slurpSplit(status_txt, "\x00");
     var status = parseStatusLines(slice[1..]);
-    var ahead_behind = parseAheadBehind(slice[0]);
+    const ahead_behind = parseAheadBehind(slice[0]);
     status[@intFromEnum(Status.ahead)] = ahead_behind.ahead;
     status[@intFromEnum(Status.behind)] = ahead_behind.behind;
     return status;
 }
 
 test "parse status" {
-    var lines =
+    const lines =
         \\## master...origin/master [ahead 1]
         \\ M repo_status.zig
         \\ M todo.txt
@@ -452,7 +452,7 @@ test "parse status" {
     var buffer: [300]u8 = undefined;
     _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
     var x: Str = &buffer;
-    var status = parseStatus(&x);
+    const status = parseStatus(&x);
     try expect(status[@intFromEnum(Status.untracked)] == 5);
 }
 
@@ -468,11 +468,11 @@ fn getStatus(dir: Str) ![STATUS_LEN]u32 {
 
 pub fn isGitRepo(dir: Str) bool {
     var cmd = [_]Str{ "rev-parse", "--is-inside-work-tree" };
-    var result = gitCmd(&cmd, dir) catch |err| {
+    const result = gitCmd(&cmd, dir) catch |err| {
         std.log.err("Couldn't read git repo at {s}. Err: {}", .{ dir, err });
         return false;
     };
-    var out = strip(result.stdout);
+    const out = strip(result.stdout);
     return result.term.Exited == 0 and !std.mem.eql(u8, out, "false");
 }
 
@@ -512,7 +512,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
         if (f.status == Status.stashed) {
             str = formatStashes(status);
         } else {
-            var num = status.status[@intFromEnum(f.status)];
+            const num = status.status[@intFromEnum(f.status)];
             str = if (num == 0) "" else try intToStr(num);
         }
         if (!std.mem.eql(u8, str, "")) {
@@ -521,17 +521,17 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
                 printed_space = true;
             }
             var strings = [_]Str{ f.token, str };
-            var temp = try std.mem.concat(A, u8, &strings);
+            const temp = try std.mem.concat(A, u8, &strings);
             try styleWrite(esc, f.color, temp);
         }
     }
 }
 
 pub fn getFullRepoStatus(dir: Str) !GitStatus {
-    var branch = getBranch(dir);
-    var status = getStatus(dir);
-    var state = getState(dir);
-    var stash = getRepoStashCounts(dir);
+    const branch = getBranch(dir);
+    const status = getStatus(dir);
+    const state = getState(dir);
+    const stash = getRepoStashCounts(dir);
     return GitStatus{
         .state = try state,
         .branch = try branch,
@@ -585,7 +585,7 @@ pub fn main() !u8 {
     if (!isGitRepo(dir))
         return 2; // specific error code for 'not a repository'
 
-    var status = try getFullRepoStatus(dir);
+    const status = try getFullRepoStatus(dir);
     try writeStatusStr(E, status);
     return 0;
 }

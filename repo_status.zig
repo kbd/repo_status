@@ -87,15 +87,15 @@ fn concatStringArray(lists: []const []Str) ![]Str {
     return try std.mem.concat(A, Str, lists);
 }
 
-fn gitCmd(args: []Str, workingdir: Str) !proc.ExecResult {
-    const gitcmd = [_]Str{ "git", "-C", workingdir };
+fn gitCmd(args: []Str, workingdir: Str) !proc.RunResult {
+    var gitcmd = [_]Str{ "git", "-C", workingdir };
     const cmd_parts = [_][]Str{ &gitcmd, args };
     const cmd = try concatStringArray(&cmd_parts);
     return try run(cmd);
 }
 
-fn run(argv: []const Str) !proc.ExecResult {
-    return try proc.exec(.{
+fn run(argv: []const Str) !proc.RunResult {
+    return try proc.run(.{
         .allocator = A,
         .argv = argv,
         .max_output_bytes = std.math.maxInt(u32),

@@ -4,9 +4,7 @@
 
 ## Disclaimer
 
-Recently rewritten in [Zig](https://ziglang.org/). Doesn't currently support
-the "fake data" commandline argument. The Python version is still available as
-`repo_status.py`.
+Written in [Zig](https://ziglang.org/).
 
 ## Introduction
 

@@ -83,14 +83,10 @@ pub var A: Allocator = undefined;
 pub var E: Escapes = undefined;
 pub var CWD: Str = undefined;
 
-fn concatStringArray(lists: []const []Str) ![]Str {
-    return try std.mem.concat(A, Str, lists);
-}
-
-fn gitCmd(args: []Str, workingdir: Str) !proc.RunResult {
-    var gitcmd = [_]Str{ "git", "-C", workingdir };
-    const cmd_parts = [_][]Str{ &gitcmd, args };
-    const cmd = try concatStringArray(&cmd_parts);
+fn gitCmd(args: []const Str, workingdir: Str) !proc.RunResult {
+    const gitcmd = &[_]Str{ "git", "-C", workingdir };
+    const cmd_parts = .{ gitcmd, args };
+    const cmd = try std.mem.concat(A, Str, &cmd_parts);
     return try run(cmd);
 }
 
@@ -166,32 +162,32 @@ fn strip(s: Str) Str {
 }
 
 fn getBranch(dir: Str) !Str {
-    var cmd1 = [_]Str{ "symbolic-ref", "HEAD", "--short" };
+    const cmd1 = [_]Str{ "symbolic-ref", "HEAD", "--short" };
     var result = try gitCmd(&cmd1, dir);
     if (result.term.Exited == 0)
         return strip(result.stdout);
 
-    var cmd2 = [_]Str{ "describe", "--all", "--contains", "--always", "HEAD" };
+    const cmd2 = [_]Str{ "describe", "--all", "--contains", "--always", "HEAD" };
     result = try gitCmd(&cmd2, dir);
     return strip(result.stdout);
 }
 
 fn getRepoStashCounts(dir: Str) !std.StringHashMap(u32) {
-    var cmd = [_]Str{ "stash", "list", "-z" };
-    var result = try gitCmd(&cmd, dir);
+    const cmd = [_]Str{ "stash", "list", "-z" };
+    const result = try gitCmd(&cmd, dir);
     if (result.term.Exited != 0)
         std.log.err("Couldn't get stash list ({})", .{result.term.Exited});
 
-    const lines = slurpSplit(&result.stdout, "\x00");
+    const lines = slurpSplit(result.stdout, "\x00");
     return parseRepoStash(lines);
 }
 
 fn getBranchNameFromStashLine(line: Str) Str {
-    const parts = slurpSplit(&line, ":");
+    const parts = slurpSplit(line, ":");
     if (parts.len <= 1)
         return "";
 
-    var part = parts[1];
+    const part = parts[1];
     if (std.mem.eql(u8, part, " autostash"))
         return "-autostash";
 
@@ -203,8 +199,8 @@ fn getBranchNameFromStashLine(line: Str) Str {
 
 test "get branch name from status line" {
     A = std.testing.allocator;
-    var line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
-    var result = getBranchNameFromStashLine(line);
+    const line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
+    const result = getBranchNameFromStashLine(line);
     try expect(std.mem.eql(u8, result, "master"));
 
     line = "stash@{1}: autostash";
@@ -362,7 +358,7 @@ test "parse ahead/behind" {
 fn strToInt(source: Str) u32 {
     // source should be a slice pointing to the right position in the string
     // find the integer at the start of 'source', return 0 if no digits found
-    var it = std.mem.tokenize(u8, source, ", ]");
+    var it = std.mem.tokenizeSequence(u8, source, ", ]");
     const val = it.next() orelse return 0;
     return std.fmt.parseInt(u32, val, 10) catch return 0;
 }
@@ -387,8 +383,8 @@ test "test string to integer" {
     try expect(std.mem.eql(u8, try intToStr(123), "123"));
 }
 
-fn slurpSplit(source: *const Str, delim: Str) []Str {
-    var lines = std.mem.split(u8, source.*, delim);
+fn slurpSplit(source: Str, delim: Str) []Str {
+    var lines = std.mem.splitSequence(u8, source, delim);
     var finalLines = std.ArrayList(Str).init(A);
     // defer finalLines.deinit();
     while (lines.next()) |line| {
@@ -404,16 +400,16 @@ fn slurpSplit(source: *const Str, delim: Str) []Str {
 }
 
 test "slurp split" {
-    var lines: Str =
+    const lines: Str =
         \\ abc
         \\ def
     ;
-    var result = slurpSplit(&lines, "\n");
+    var result = slurpSplit(lines, "\n");
     try expect(std.mem.eql(u8, result[0], " abc"));
     try expect(std.mem.eql(u8, result[1], " def"));
 
-    var str: Str = "a:b";
-    result = slurpSplit(&str, ":");
+    const str: Str = "a:b";
+    result = slurpSplit(str, ":");
     try expect(std.mem.eql(u8, result[0], "a"));
     try expect(std.mem.eql(u8, result[1], "b"));
 }
@@ -428,7 +424,7 @@ test "slurp split" {
 // ?? test
 // ?? test.nim
 // ?? test.zig
-fn parseStatus(status_txt: *Str) [STATUS_LEN]u32 {
+fn parseStatus(status_txt: Str) [STATUS_LEN]u32 {
     var slice = slurpSplit(status_txt, "\x00");
     var status = parseStatusLines(slice[1..]);
     const ahead_behind = parseAheadBehind(slice[0]);
@@ -451,19 +447,19 @@ test "parse status" {
     A = std.testing.allocator;
     var buffer: [300]u8 = undefined;
     _ = std.mem.replace(u8, lines, "\n", "\x00", buffer[0..]);
-    var x: Str = &buffer;
-    const status = parseStatus(&x);
+    const status = parseStatus(&buffer);
     try expect(status[@intFromEnum(Status.untracked)] == 5);
 }
 
 fn getStatus(dir: Str) ![STATUS_LEN]u32 {
     // get and parse status codes
-    var cmd = [_]Str{ "status", "-zb" };
-    var result = try gitCmd(&cmd, dir);
+    const cmd: []const Str = &[_]Str{ "status", "-zb" };
+    const result = try gitCmd(cmd, dir);
     if (result.term.Exited != 0)
         return error.GitStatusFailed;
 
-    return parseStatus(&result.stdout);
+    const out: Str = result.stdout;
+    return parseStatus(out);
 }
 
 pub fn isGitRepo(dir: Str) bool {

@@ -5,3 +5,6 @@ build *args:
 
 build-release *args:
   zig build-exe -OReleaseFast repo_status.zig "$@"
+
+test:
+  zig test *.zig

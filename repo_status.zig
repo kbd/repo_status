@@ -199,8 +199,8 @@ fn getBranchNameFromStashLine(line: Str) Str {
 
 test "get branch name from status line" {
     A = std.testing.allocator;
-    const line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
-    const result = getBranchNameFromStashLine(line);
+    var line: Str = "stash@{1}: WIP on master: 8dbbdc4 commit one";
+    var result = getBranchNameFromStashLine(line);
     try expect(std.mem.eql(u8, result, "master"));
 
     line = "stash@{1}: autostash";

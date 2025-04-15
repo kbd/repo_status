@@ -358,7 +358,7 @@ test "parse ahead/behind" {
 fn strToInt(source: Str) u32 {
     // source should be a slice pointing to the right position in the string
     // find the integer at the start of 'source', return 0 if no digits found
-    var it = std.mem.tokenizeSequence(u8, source, ", ]");
+    var it = std.mem.tokenizeAny(u8, source, ", ]");
     const val = it.next() orelse return 0;
     return std.fmt.parseInt(u32, val, 10) catch return 0;
 }

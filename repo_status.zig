@@ -1,5 +1,4 @@
 const std = @import("std");
-const stdout = std.io.getStdOut().writer();
 const dp = std.debug.print;
 const os = std.os;
 const Allocator = std.mem.Allocator;
@@ -9,6 +8,10 @@ const len = std.mem.len;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const ArrayList = std.ArrayList;
+
+var stdout_buffer: [1024]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
 
 // this compile-errors on 0.7.1-0.8.0
 // https://github.com/ziglang/zig/issues/6682
@@ -138,7 +141,7 @@ fn getState(dir: Str) !Str {
             try state_set.insert(check.code);
     }
 
-    var list = std.ArrayList(Str).init(A);
+    var list = std.array_list.Managed(Str).init(A);
     var it = state_set.iterator();
     while (it.next()) |entry| {
         try list.append(entry.*);
@@ -372,7 +375,7 @@ test "parse digits from string" {
 fn intToStr(i: u32) !Str {
     const buffer = try A.create([10]u8);
     var stream = std.io.fixedBufferStream(buffer);
-    try std.fmt.formatIntValue(i, "", .{}, stream.writer());
+    try std.fmt.format(stream.writer(), "{}", .{i});
     return stream.getWritten();
 }
 
@@ -385,7 +388,7 @@ test "test string to integer" {
 
 fn slurpSplit(source: Str, delim: Str) []Str {
     var lines = std.mem.splitSequence(u8, source, delim);
-    var finalLines = std.ArrayList(Str).init(A);
+    var finalLines = std.array_list.Managed(Str).init(A);
     // defer finalLines.deinit();
     while (lines.next()) |line| {
         const stripped_line = strip(line);
@@ -583,5 +586,6 @@ pub fn main() !u8 {
 
     const status = try getFullRepoStatus(dir);
     try writeStatusStr(E, status);
+    try stdout.flush();
     return 0;
 }

@@ -11,7 +11,7 @@ const ArrayList = std.ArrayList;
 
 var stdout_buffer: [1024]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-const stdout = &stdout_writer.interface;
+pub var stdout = &stdout_writer.interface;
 
 // this compile-errors on 0.7.1-0.8.0
 // https://github.com/ziglang/zig/issues/6682
@@ -524,6 +524,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
             try styleWrite(esc, f.color, temp);
         }
     }
+    try stdout.flush();
 }
 
 pub fn getFullRepoStatus(dir: Str) !GitStatus {
@@ -586,6 +587,5 @@ pub fn main() !u8 {
 
     const status = try getFullRepoStatus(dir);
     try writeStatusStr(E, status);
-    try stdout.flush();
     return 0;
 }

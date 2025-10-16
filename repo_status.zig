@@ -41,6 +41,15 @@ const GitStatus = struct {
     stash: std.StringHashMap(u32),
 };
 
+const JujutsuStatus = struct {
+    bookmarks: Str, // Bookmark names (like git branches)
+    formatted_ids: Str, // Pre-formatted output from jj with colors
+    modified: u32,
+    added: u32,
+    removed: u32,
+    conflicts: u32,
+};
+
 const Shell = enum {
     zsh,
     bash,
@@ -89,6 +98,13 @@ pub var CWD: Str = undefined;
 fn gitCmd(args: []const Str, workingdir: Str) !proc.RunResult {
     const gitcmd = &[_]Str{ "git", "-C", workingdir };
     const cmd_parts = .{ gitcmd, args };
+    const cmd = try std.mem.concat(A, Str, &cmd_parts);
+    return try run(cmd);
+}
+
+fn jjCmd(args: []const Str, workingdir: Str) !proc.RunResult {
+    const jjcmd = &[_]Str{ "jj", "-R", workingdir };
+    const cmd_parts = .{ jjcmd, args };
     const cmd = try std.mem.concat(A, Str, &cmd_parts);
     return try run(cmd);
 }
@@ -162,6 +178,45 @@ fn exists(pth: Str) bool {
 
 fn strip(s: Str) Str {
     return std.mem.trim(u8, s, " \t\n");
+}
+
+fn stripAnsiCodesSimple(s: Str) Str {
+    // Simple ANSI code stripper for deduplication comparison
+    // Returns a slice (not owned) pointing to parts without ANSI codes
+    // This is a simplified version just for comparison
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] == '\x1b') {
+            // Found ANSI code, return everything before it
+            return s[0..i];
+        }
+    }
+    return s;
+}
+
+fn deduplicateBookmarks(s: Str) !Str {
+    // Split by ", " and deduplicate based on text content (ignoring ANSI codes)
+    if (s.len == 0) return s;
+
+    var seen = std.StringHashMap(void).init(A);
+    var result = std.array_list.Managed(u8).init(A);
+    var parts = std.mem.splitSequence(u8, s, ", ");
+    var first = true;
+
+    while (parts.next()) |part| {
+        if (part.len == 0) continue;
+
+        // Strip ANSI codes for comparison
+        const text_only = stripAnsiCodesSimple(part);
+        if (seen.contains(text_only)) continue;
+
+        try seen.put(text_only, {});
+        if (!first) try result.appendSlice(", ");
+        try result.appendSlice(part);
+        first = false;
+    }
+
+    return result.toOwnedSlice();
 }
 
 fn getBranch(dir: Str) !Str {
@@ -475,6 +530,12 @@ pub fn isGitRepo(dir: Str) bool {
     return result.term.Exited == 0 and !std.mem.eql(u8, out, "false");
 }
 
+pub fn isJujutsuRepo(dir: Str) bool {
+    var cmd = [_]Str{"root"};
+    const result = jjCmd(&cmd, dir) catch return false;
+    return result.term.Exited == 0;
+}
+
 fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
     try stdout.print("{s}{s}{s}{s}{s}{s}{s}", .{
         esc.o, color, esc.c, value, esc.o, C.default, esc.c,
@@ -527,6 +588,100 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     try stdout.flush();
 }
 
+pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus) !void {
+    // Print bookmarks (already colored yellow by jj, with color code replaced)
+    if (status.bookmarks.len > 0) {
+        // Wrap ANSI codes in shell escapes if needed
+        if (esc.o.len > 0) {
+            var i: usize = 0;
+            while (i < status.bookmarks.len) {
+                if (status.bookmarks[i] == '\x1b') {
+                    try stdout.print("{s}\x1b", .{esc.o});
+                    i += 1;
+                    while (i < status.bookmarks.len) {
+                        const ch = status.bookmarks[i];
+                        try stdout.print("{c}", .{ch});
+                        i += 1;
+                        if (ch == 'm') {
+                            try stdout.print("{s}", .{esc.c});
+                            break;
+                        }
+                    }
+                } else {
+                    try stdout.print("{c}", .{status.bookmarks[i]});
+                    i += 1;
+                }
+            }
+        } else {
+            try stdout.print("{s}", .{status.bookmarks});
+        }
+        try stdout.print(" ", .{});
+    }
+
+    // Print the pre-formatted IDs from jj (already includes colors)
+    // Wrap ANSI escape codes with shell escapes (like sed 's/\x1b\[[0-9;]*m/%{&%}/g')
+    if (esc.o.len > 0) {
+        // For bash/zsh prompts, wrap ANSI escape sequences
+        var i: usize = 0;
+        while (i < status.formatted_ids.len) {
+            if (status.formatted_ids[i] == '\x1b') {
+                // Found start of ANSI escape sequence, wrap it
+                try stdout.print("{s}\x1b", .{esc.o});
+                i += 1;
+                // Continue until we find 'm' (end of ANSI color sequence)
+                while (i < status.formatted_ids.len) {
+                    const ch = status.formatted_ids[i];
+                    try stdout.print("{c}", .{ch});
+                    i += 1;
+                    if (ch == 'm') {
+                        try stdout.print("{s}", .{esc.c});
+                        break;
+                    }
+                }
+            } else {
+                try stdout.print("{c}", .{status.formatted_ids[i]});
+                i += 1;
+            }
+        }
+    } else {
+        // No escaping needed (not in a prompt)
+        try stdout.print("{s}", .{status.formatted_ids});
+    }
+
+    // Print status indicators using same symbols as git
+    const has_changes = status.modified > 0 or status.added > 0 or status.removed > 0;
+    if (has_changes or status.conflicts > 0) {
+        try stdout.print(" ", .{});
+
+        // added (new files) → … cyan (like untracked in git)
+        if (status.added > 0) {
+            const str = try intToStr(status.added);
+            const temp = try std.mem.concat(A, u8, &[_]Str{ "…", str });
+            try styleWrite(esc, C.cyan, temp);
+        }
+        // modified → + yellow
+        if (status.modified > 0) {
+            const str = try intToStr(status.modified);
+            const temp = try std.mem.concat(A, u8, &[_]Str{ "+", str });
+            try styleWrite(esc, C.yellow, temp);
+        }
+        // removed → - red
+        if (status.removed > 0) {
+            const str = try intToStr(status.removed);
+            const temp = try std.mem.concat(A, u8, &[_]Str{ "-", str });
+            try styleWrite(esc, C.red, temp);
+        }
+        // conflicts → ✖ red with count
+        if (status.conflicts > 0) {
+            const str = try intToStr(status.conflicts);
+            const temp = try std.mem.concat(A, u8, &[_]Str{ "✖", str });
+            try styleWrite(esc, C.red, temp);
+        }
+    }
+
+    try stdout.flush();
+}
+
 pub fn getFullRepoStatus(dir: Str) !GitStatus {
     const branch = getBranch(dir);
     const status = getStatus(dir);
@@ -540,6 +695,71 @@ pub fn getFullRepoStatus(dir: Str) !GitStatus {
     };
 }
 
+pub fn getFullJujutsuStatus(dir: Str) !JujutsuStatus {
+    // Get everything in one query with jj's colors
+    // Use null bytes as field separators (like git does)
+    const template =
+        \\separate(", ", local_bookmarks.map(|b| b.name())) ++ "\0" ++
+        \\separate(", ", parents.map(|p| p.local_bookmarks().map(|b| b.name()))) ++ "\0" ++
+        \\change_id.shortest(4) ++ "/" ++ commit_id.shortest(4) ++ "\0" ++
+        \\files.filter(|f| f.conflict()).len() ++ "\0" ++
+        \\self.diff().files().map(|f| f.status()).join("\n")
+    ;
+    const log_cmd = [_]Str{ "log", "--ignore-working-copy", "--color=always", "--no-graph", "-r", "@", "-T", template };
+    const log_result = try jjCmd(&log_cmd, dir);
+    if (log_result.term.Exited != 0)
+        return error.JujutsuLogFailed;
+
+    const log_output = strip(log_result.stdout);
+
+    // Parse output: current_bookmarks\0parent_bookmarks\0formatted_ids\0conflict_count\0file_statuses
+    var parts = std.mem.splitSequence(u8, log_output, "\x00");
+    const current_bookmarks = strip(parts.next() orelse "");
+    const parent_bookmarks = strip(parts.next() orelse "");
+    const formatted_ids = parts.next() orelse "";
+    const conflict_count_str = strip(parts.next() orelse "0");
+    const file_statuses = parts.next() orelse "";
+
+    const conflict_count = strToInt(conflict_count_str);
+
+    // Use current bookmarks if available, otherwise parent's
+    const bookmark_to_use = if (current_bookmarks.len > 0) current_bookmarks else parent_bookmarks;
+
+    // Replace jj's magenta (ESC[38;5;5m) with yellow (ESC[33m)
+    var bookmarks_with_color = try std.mem.replaceOwned(u8, A, bookmark_to_use, "\x1b[38;5;5m", "\x1b[33m");
+    // Also replace the plain color version if present
+    bookmarks_with_color = try std.mem.replaceOwned(u8, A, bookmarks_with_color, "\x1b[35m", "\x1b[33m");
+
+    var modified: u32 = 0;
+    var added: u32 = 0;
+    var removed: u32 = 0;
+
+    // Parse file statuses (modified, added, removed, etc.)
+    var lines = std.mem.splitSequence(u8, file_statuses, "\n");
+    while (lines.next()) |line| {
+        const trimmed = strip(line);
+        if (trimmed.len == 0) continue;
+
+        // File status strings from jj
+        if (std.mem.eql(u8, trimmed, "modified")) {
+            modified += 1;
+        } else if (std.mem.eql(u8, trimmed, "added")) {
+            added += 1;
+        } else if (std.mem.eql(u8, trimmed, "removed")) {
+            removed += 1;
+        }
+    }
+
+    return JujutsuStatus{
+        .bookmarks = bookmarks_with_color,
+        .formatted_ids = formatted_ids,
+        .modified = modified,
+        .added = added,
+        .removed = removed,
+        .conflicts = conflict_count,
+    };
+}
+
 pub fn main() !u8 {
     // allocator setup
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -548,11 +768,20 @@ pub fn main() !u8 {
 
     var dir: Str = ".";
     var shellstr: Str = "";
-    if (std.os.argv.len == 3)
-        shellstr = std.mem.span(std.os.argv[1]);
 
-    if (std.os.argv.len > 1)
-        dir = std.mem.span(std.os.argv[std.os.argv.len - 1]);
+    // Parse arguments: [shell] [directory]
+    if (std.os.argv.len == 2) {
+        // Single argument: could be shell or directory
+        const arg = std.mem.span(std.os.argv[1]);
+        if (std.mem.eql(u8, arg, "zsh") or std.mem.eql(u8, arg, "bash")) {
+            shellstr = arg;
+        } else {
+            dir = arg;
+        }
+    } else if (std.os.argv.len == 3) {
+        shellstr = std.mem.span(std.os.argv[1]);
+        dir = std.mem.span(std.os.argv[2]);
+    }
 
     if (std.os.argv.len > 3) {
         dp("Usage: repo_status [zsh|bash] [directory]\n", .{});
@@ -580,6 +809,13 @@ pub fn main() !u8 {
         else => {
             E = Escapes.init("", "");
         },
+    }
+
+    // Check for Jujutsu repo first, then fall back to Git
+    if (isJujutsuRepo(dir)) {
+        const jj_status = try getFullJujutsuStatus(dir);
+        try writeJujutsuStatusStr(E, jj_status);
+        return 0;
     }
 
     if (!isGitRepo(dir))

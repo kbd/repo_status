@@ -42,7 +42,7 @@ const GitStatus = struct {
 };
 
 const JujutsuStatus = struct {
-    bookmarks: Str, // Bookmark names (like git branches)
+    bookmark: Str, // Bookmark name (like git branch)
     formatted_ids: Str, // Pre-formatted output from jj with colors
     modified: u32,
     added: u32,
@@ -178,45 +178,6 @@ fn exists(pth: Str) bool {
 
 fn strip(s: Str) Str {
     return std.mem.trim(u8, s, " \t\n");
-}
-
-fn stripAnsiCodesSimple(s: Str) Str {
-    // Simple ANSI code stripper for deduplication comparison
-    // Returns a slice (not owned) pointing to parts without ANSI codes
-    // This is a simplified version just for comparison
-    var i: usize = 0;
-    while (i < s.len) : (i += 1) {
-        if (s[i] == '\x1b') {
-            // Found ANSI code, return everything before it
-            return s[0..i];
-        }
-    }
-    return s;
-}
-
-fn deduplicateBookmarks(s: Str) !Str {
-    // Split by ", " and deduplicate based on text content (ignoring ANSI codes)
-    if (s.len == 0) return s;
-
-    var seen = std.StringHashMap(void).init(A);
-    var result = std.array_list.Managed(u8).init(A);
-    var parts = std.mem.splitSequence(u8, s, ", ");
-    var first = true;
-
-    while (parts.next()) |part| {
-        if (part.len == 0) continue;
-
-        // Strip ANSI codes for comparison
-        const text_only = stripAnsiCodesSimple(part);
-        if (seen.contains(text_only)) continue;
-
-        try seen.put(text_only, {});
-        if (!first) try result.appendSlice(", ");
-        try result.appendSlice(part);
-        first = false;
-    }
-
-    return result.toOwnedSlice();
 }
 
 fn getBranch(dir: Str) !Str {
@@ -609,33 +570,10 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     try stdout.flush();
 }
 
-pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus, skip_bookmarks: bool) !void {
-    // Print bookmarks (already colored yellow by jj, with color code replaced)
-    if (status.bookmarks.len > 0 and !skip_bookmarks) {
-        // Wrap ANSI codes in shell escapes if needed
-        if (esc.o.len > 0) {
-            var i: usize = 0;
-            while (i < status.bookmarks.len) {
-                if (status.bookmarks[i] == '\x1b') {
-                    try stdout.print("{s}\x1b", .{esc.o});
-                    i += 1;
-                    while (i < status.bookmarks.len) {
-                        const ch = status.bookmarks[i];
-                        try stdout.print("{c}", .{ch});
-                        i += 1;
-                        if (ch == 'm') {
-                            try stdout.print("{s}", .{esc.c});
-                            break;
-                        }
-                    }
-                } else {
-                    try stdout.print("{c}", .{status.bookmarks[i]});
-                    i += 1;
-                }
-            }
-        } else {
-            try stdout.print("{s}", .{status.bookmarks});
-        }
+pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus, skip_bookmark: bool) !void {
+    // Print bookmark with our own yellow styling (bookmark is plain text now)
+    if (status.bookmark.len > 0 and !skip_bookmark) {
+        try styleWrite(esc, C.yellow, status.bookmark);
         try stdout.print(" ", .{});
     }
 
@@ -717,27 +655,24 @@ pub fn getFullRepoStatus(dir: Str) !GitStatus {
 }
 
 pub fn getFullJujutsuStatus(dir: Str) !JujutsuStatus {
-    // Get everything in one query with jj's colors
-    // Use null bytes as field separators (like git does)
-    const template =
+    // First call: Get plain data (no colors) for parsing
+    const data_template =
         \\separate(", ", local_bookmarks.map(|b| b.name())) ++ "\0" ++
         \\separate(", ", parents.map(|p| p.local_bookmarks().map(|b| b.name()))) ++ "\0" ++
-        \\change_id.shortest(4) ++ "/" ++ commit_id.shortest(4) ++ "\0" ++
         \\files.filter(|f| f.conflict()).len() ++ "\0" ++
         \\self.diff().files().map(|f| f.status()).join("\n")
     ;
-    const log_cmd = [_]Str{ "log", "--ignore-working-copy", "--color=always", "--no-graph", "-r", "@", "-T", template };
-    const log_result = try jjCmd(&log_cmd, dir);
-    if (log_result.term.Exited != 0)
+    const data_cmd = [_]Str{ "log", "--ignore-working-copy", "--color=never", "--no-graph", "-r", "@", "-T", data_template };
+    const data_result = try jjCmd(&data_cmd, dir);
+    if (data_result.term.Exited != 0)
         return error.JujutsuLogFailed;
 
-    const log_output = strip(log_result.stdout);
+    const data_output = strip(data_result.stdout);
 
-    // Parse output: current_bookmarks\0parent_bookmarks\0formatted_ids\0conflict_count\0file_statuses
-    var parts = std.mem.splitSequence(u8, log_output, "\x00");
+    // Parse output: current_bookmarks\0parent_bookmarks\0conflict_count\0file_statuses
+    var parts = std.mem.splitSequence(u8, data_output, "\x00");
     const current_bookmarks = strip(parts.next() orelse "");
     const parent_bookmarks = strip(parts.next() orelse "");
-    const formatted_ids = parts.next() orelse "";
     const conflict_count_str = strip(parts.next() orelse "0");
     const file_statuses = parts.next() orelse "";
 
@@ -746,10 +681,14 @@ pub fn getFullJujutsuStatus(dir: Str) !JujutsuStatus {
     // Use current bookmarks if available, otherwise parent's
     const bookmark_to_use = if (current_bookmarks.len > 0) current_bookmarks else parent_bookmarks;
 
-    // Replace jj's magenta (ESC[38;5;5m) with yellow (ESC[33m)
-    var bookmarks_with_color = try std.mem.replaceOwned(u8, A, bookmark_to_use, "\x1b[38;5;5m", "\x1b[33m");
-    // Also replace the plain color version if present
-    bookmarks_with_color = try std.mem.replaceOwned(u8, A, bookmarks_with_color, "\x1b[35m", "\x1b[33m");
+    // Second call: Get formatted IDs with jj's coloring
+    const id_template = "change_id.shortest(4) ++ \"/\" ++ commit_id.shortest(4)";
+    const id_cmd = [_]Str{ "log", "--ignore-working-copy", "--color=always", "--no-graph", "-r", "@", "-T", id_template };
+    const id_result = try jjCmd(&id_cmd, dir);
+    if (id_result.term.Exited != 0)
+        return error.JujutsuLogFailed;
+
+    const formatted_ids = strip(id_result.stdout);
 
     var modified: u32 = 0;
     var added: u32 = 0;
@@ -772,7 +711,7 @@ pub fn getFullJujutsuStatus(dir: Str) !JujutsuStatus {
     }
 
     return JujutsuStatus{
-        .bookmarks = bookmarks_with_color,
+        .bookmark = bookmark_to_use,
         .formatted_ids = formatted_ids,
         .modified = modified,
         .added = added,
@@ -859,9 +798,8 @@ pub fn main() !u8 {
             try stdout.print(" ", .{});
             const jj_status = try getFullJujutsuStatus(dir);
 
-            // Check if git branch equals jj bookmark (use original, not truncated)
-            const jj_bookmark_plain = stripAnsiCodesSimple(jj_status.bookmarks);
-            const skip_bookmark = std.mem.eql(u8, git_status.branch, jj_bookmark_plain);
+            // Check if git branch equals jj bookmark (both are plain text now)
+            const skip_bookmark = std.mem.eql(u8, git_status.branch, jj_status.bookmark);
 
             try writeJujutsuStatusStr(E, jj_status, skip_bookmark);
         }

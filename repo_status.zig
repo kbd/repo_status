@@ -230,6 +230,27 @@ fn getBranch(dir: Str) !Str {
     return strip(result.stdout);
 }
 
+fn truncateBranch(branch: Str) !Str {
+    // For refs like "jj/keep/4fbb2589570fb1125a0fabd92fc25310377d01bb",
+    // truncate the hash part after the last "/" to 6 chars + ellipsis
+    // Result: "jj/keep/4fbb25…"
+
+    // Find last slash
+    if (std.mem.lastIndexOf(u8, branch, "/")) |last_slash| {
+        const prefix = branch[0..last_slash + 1]; // Include the "/"
+        const hash = branch[last_slash + 1..];
+
+        // Only truncate if the hash part is long (>12 chars suggests it's a full hash)
+        if (hash.len > 12) {
+            const short_hash = hash[0..6];
+            return try std.mem.concat(A, u8, &[_]Str{ prefix, short_hash, "…" });
+        }
+    }
+
+    // Return as-is if not a long ref
+    return branch;
+}
+
 fn getRepoStashCounts(dir: Str) !std.StringHashMap(u32) {
     const cmd = [_]Str{ "stash", "list", "-z" };
     const result = try gitCmd(&cmd, dir);
@@ -588,9 +609,9 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     try stdout.flush();
 }
 
-pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus) !void {
+pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus, skip_bookmarks: bool) !void {
     // Print bookmarks (already colored yellow by jj, with color code replaced)
-    if (status.bookmarks.len > 0) {
+    if (status.bookmarks.len > 0 and !skip_bookmarks) {
         // Wrap ANSI codes in shell escapes if needed
         if (esc.o.len > 0) {
             var i: usize = 0;
@@ -811,17 +832,48 @@ pub fn main() !u8 {
         },
     }
 
-    // Check for Jujutsu repo first, then fall back to Git
-    if (isJujutsuRepo(dir)) {
-        const jj_status = try getFullJujutsuStatus(dir);
-        try writeJujutsuStatusStr(E, jj_status);
+    // Check if we're in a Jujutsu repo and/or Git repo
+    const is_jj = isJujutsuRepo(dir);
+    const is_git = isGitRepo(dir);
+
+    if (!is_jj and !is_git)
+        return 2; // specific error code for 'not a repository'
+
+    if (is_git) {
+        // Get git status first
+        const git_status = try getFullRepoStatus(dir);
+        const truncated_branch = try truncateBranch(git_status.branch);
+
+        // Create a modified GitStatus with truncated branch for display
+        const display_status = GitStatus{
+            .state = git_status.state,
+            .branch = truncated_branch,
+            .status = git_status.status,
+            .stash = git_status.stash,
+        };
+
+        try writeStatusStr(E, display_status);
+
+        // If also a jj repo, add jj status
+        if (is_jj) {
+            try stdout.print(" ", .{});
+            const jj_status = try getFullJujutsuStatus(dir);
+
+            // Check if git branch equals jj bookmark (use original, not truncated)
+            const jj_bookmark_plain = stripAnsiCodesSimple(jj_status.bookmarks);
+            const skip_bookmark = std.mem.eql(u8, git_status.branch, jj_bookmark_plain);
+
+            try writeJujutsuStatusStr(E, jj_status, skip_bookmark);
+        }
         return 0;
     }
 
-    if (!isGitRepo(dir))
-        return 2; // specific error code for 'not a repository'
+    // Only a jj repo (not git)
+    if (is_jj) {
+        const jj_status = try getFullJujutsuStatus(dir);
+        try writeJujutsuStatusStr(E, jj_status, false);
+        return 0;
+    }
 
-    const status = try getFullRepoStatus(dir);
-    try writeStatusStr(E, status);
-    return 0;
+    return 2;
 }

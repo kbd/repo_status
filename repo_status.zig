@@ -198,8 +198,8 @@ fn truncateBranch(branch: Str) !Str {
 
     // Find last slash
     if (std.mem.lastIndexOf(u8, branch, "/")) |last_slash| {
-        const prefix = branch[0..last_slash + 1]; // Include the "/"
-        const hash = branch[last_slash + 1..];
+        const prefix = branch[0 .. last_slash + 1]; // Include the "/"
+        const hash = branch[last_slash + 1 ..];
 
         // Only truncate if the hash part is long (>12 chars suggests it's a full hash)
         if (hash.len > 12) {
@@ -513,7 +513,7 @@ pub fn isGitRepo(dir: Str) bool {
 }
 
 pub fn isJujutsuRepo(dir: Str) bool {
-    var cmd = [_]Str{"root"};
+    var cmd = [_]Str{ "root", "--ignore-working-copy" };
     const result = jjCmd(&cmd, dir) catch return false;
     return result.term.Exited == 0;
 }
@@ -524,7 +524,7 @@ fn styleWrite(esc: Escapes, color: Str, value: Str) !void {
     });
 }
 
-pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
+pub fn writeGitStatusStr(esc: Escapes, status: GitStatus) !void {
     // o, c = e[shell].o.replace('{', '{{'), e[shell].c.replace('}', '}}')
     const format = .{
         // using arrays over tuples failed
@@ -545,7 +545,7 @@ pub fn writeStatusStr(esc: Escapes, status: GitStatus) !void {
     }
 
     // print branch
-    try styleWrite(esc, C.yellow, status.branch);
+    try styleWrite(esc, C.yellow, try truncateBranch(status.branch));
 
     // print stats
     var printed_space = false;
@@ -641,7 +641,7 @@ pub fn writeJujutsuStatusStr(esc: Escapes, status: JujutsuStatus, skip_bookmark:
     try stdout.flush();
 }
 
-pub fn getFullRepoStatus(dir: Str) !GitStatus {
+pub fn getFullGitStatus(dir: Str) !GitStatus {
     const branch = getBranch(dir);
     const status = getStatus(dir);
     const state = getState(dir);
@@ -720,6 +720,32 @@ pub fn getFullJujutsuStatus(dir: Str) !JujutsuStatus {
     };
 }
 
+pub fn writeStatus(escapes: Escapes, dir: Str) !u8 {
+    const is_jj = isJujutsuRepo(dir);
+    const is_git = isGitRepo(dir);
+
+    if (!is_jj and !is_git)
+        return 2; // specific error code for 'not a repository'
+
+    var git_status: GitStatus = undefined;
+    if (is_git) {
+        git_status = try getFullGitStatus(dir);
+        try writeGitStatusStr(escapes, git_status);
+    }
+
+    if (is_jj) {
+        const jj_status = try getFullJujutsuStatus(dir);
+        var skip_bookmark = false; // elide bookmark if it matches git branch
+
+        if (is_git) {
+            try stdout.print(" ", .{});
+            skip_bookmark = std.mem.eql(u8, git_status.branch, jj_status.bookmark);
+        }
+        try writeJujutsuStatusStr(escapes, jj_status, skip_bookmark);
+    }
+    return 0;
+}
+
 pub fn main() !u8 {
     // allocator setup
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -771,47 +797,5 @@ pub fn main() !u8 {
         },
     }
 
-    // Check if we're in a Jujutsu repo and/or Git repo
-    const is_jj = isJujutsuRepo(dir);
-    const is_git = isGitRepo(dir);
-
-    if (!is_jj and !is_git)
-        return 2; // specific error code for 'not a repository'
-
-    if (is_git) {
-        // Get git status first
-        const git_status = try getFullRepoStatus(dir);
-        const truncated_branch = try truncateBranch(git_status.branch);
-
-        // Create a modified GitStatus with truncated branch for display
-        const display_status = GitStatus{
-            .state = git_status.state,
-            .branch = truncated_branch,
-            .status = git_status.status,
-            .stash = git_status.stash,
-        };
-
-        try writeStatusStr(E, display_status);
-
-        // If also a jj repo, add jj status
-        if (is_jj) {
-            try stdout.print(" ", .{});
-            const jj_status = try getFullJujutsuStatus(dir);
-
-            // Check if git branch equals jj bookmark (both are plain text now)
-            const skip_bookmark = std.mem.eql(u8, git_status.branch, jj_status.bookmark);
-
-            try writeJujutsuStatusStr(E, jj_status, skip_bookmark);
-        }
-        return 0;
-    }
-
-    // Only a jj repo (not git)
-    if (is_jj) {
-        const jj_status = try getFullJujutsuStatus(dir);
-        try writeJujutsuStatusStr(E, jj_status, false);
-        return 0;
-    }
-
-    return 2;
+    return writeStatus(E, dir);
 }
